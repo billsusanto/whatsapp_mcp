@@ -137,31 +137,53 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Store conversation history per user
+ * In production: use Redis or database for persistence across serverless invocations
+ */
+const conversationSessions = new Map<string, string>();
+
+/**
  * Process message with Claude Agent SDK using query()
+ *
+ * The SDK reads ANTHROPIC_API_KEY from environment variables automatically
+ * Maintains conversation history per phone number using session resumption
  */
 async function processWithClaude(userMessage: string, phoneNumber: string): Promise<string> {
   try {
-    console.log('Processing with Claude Agent SDK...');
+    console.log(`Processing message from ${phoneNumber} with Claude Agent SDK...`);
 
     const systemPrompt = process.env.AGENT_SYSTEM_PROMPT ||
-      'You are a helpful WhatsApp assistant. Keep responses concise and friendly since messages are sent via WhatsApp. Limit responses to 1-2 paragraphs.';
+      'You are a helpful WhatsApp assistant. Keep responses concise and friendly since messages are sent via WhatsApp. Aim for 1-3 paragraphs maximum.';
+
+    // Get previous session ID for this user (for conversation continuity)
+    const previousSession = conversationSessions.get(phoneNumber);
 
     // Use query() function to get response from Claude
+    // API key is read from ANTHROPIC_API_KEY environment variable
     const result = query({
       prompt: userMessage,
       options: {
-        apiKey: process.env.ANTHROPIC_API_KEY,
         model: 'claude-3-5-sonnet-20241022',
         systemPrompt: systemPrompt,
-        maxTurns: 1, // Single turn for WhatsApp responses
+        maxTurns: 5, // Allow multi-turn conversations
+        env: {
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+        },
+        // Resume previous conversation if exists
+        ...(previousSession && { resume: previousSession }),
       },
     });
 
     let responseText = '';
+    let sessionId = '';
 
     // Stream messages and collect assistant responses
     for await (const message of result) {
-      if (message.type === 'assistant') {
+      if (message.type === 'system') {
+        // Store session ID for conversation continuity
+        sessionId = message.sessionId;
+        console.log(`Session ID for ${phoneNumber}:`, sessionId);
+      } else if (message.type === 'assistant') {
         // Extract text content from assistant message
         const content = message.message.content;
         for (const block of content) {
@@ -172,6 +194,11 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
       } else if (message.type === 'result') {
         console.log('Query completed. Cost:', message.total_cost_usd, 'Tokens:', message.usage);
       }
+    }
+
+    // Store session for next message from this user
+    if (sessionId) {
+      conversationSessions.set(phoneNumber, sessionId);
     }
 
     console.log('Agent response received:', responseText.substring(0, 100) + '...');
