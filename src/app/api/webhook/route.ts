@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import Anthropic from '@anthropic-ai/sdk';
 
 /**
  * GET handler for webhook verification
@@ -119,11 +120,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Message received:', { from, messageText, messageId });
 
-    // TODO: Process with Claude Agent SDK
-    // For now, we'll send a simple echo response
-    // Later: Integrate with @anthropic-ai/claude-agent-sdk
-
-    const aiResponse = `Echo: ${messageText}\n\n(AI integration coming soon!)`;
+    // Process message with Claude AI
+    const aiResponse = await processWithClaude(messageText, from);
 
     // Send response back to user via WhatsApp API
     await sendWhatsAppMessage(from, aiResponse);
@@ -135,6 +133,47 @@ export async function POST(request: NextRequest) {
     console.error('Webhook error:', error);
     // Still return 200 to prevent WhatsApp from retrying
     return NextResponse.json({ status: 'error' }, { status: 200 });
+  }
+}
+
+/**
+ * Process message with Claude AI
+ */
+async function processWithClaude(userMessage: string, phoneNumber: string): Promise<string> {
+  try {
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
+
+    const systemPrompt = process.env.AGENT_SYSTEM_PROMPT ||
+      'You are a helpful WhatsApp assistant. Keep responses concise and friendly.';
+
+    console.log('Calling Claude API...');
+
+    const response = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: userMessage,
+        },
+      ],
+    });
+
+    // Extract text from response
+    const aiResponse = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.type === 'text' ? block.text : '')
+      .join('\n');
+
+    console.log('Claude response received:', aiResponse.substring(0, 100) + '...');
+
+    return aiResponse || 'Sorry, I could not generate a response.';
+  } catch (error) {
+    console.error('Error calling Claude API:', error);
+    return 'Sorry, I encountered an error processing your message. Please try again.';
   }
 }
 
