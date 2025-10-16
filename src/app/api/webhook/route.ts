@@ -6,8 +6,8 @@
  * DEPLOYMENT: This runs on Vercel as a serverless function
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { NextRequest, NextResponse } from "next/server";
+import { Anthropic } from "@anthropic-ai/sdk";
 
 /**
  * GET handler for webhook verification
@@ -26,35 +26,41 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 export async function GET(request: NextRequest) {
   // Extract query parameters from WhatsApp verification request
   const searchParams = request.nextUrl.searchParams;
-  const mode = searchParams.get('hub.mode');
-  const token = searchParams.get('hub.verify_token');
-  const challenge = searchParams.get('hub.challenge');
+  const mode = searchParams.get("hub.mode");
+  const token = searchParams.get("hub.verify_token");
+  const challenge = searchParams.get("hub.challenge");
 
   // Enhanced debugging - show exact values
-  console.log('=== WEBHOOK VERIFICATION DEBUG ===');
-  console.log('Received mode:', mode);
-  console.log('Received token:', token);
-  console.log('Expected token:', process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
-  console.log('Tokens match:', token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
-  console.log('Challenge:', challenge);
-  console.log('Env var exists:', !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
-  console.log('================================');
+  console.log("=== WEBHOOK VERIFICATION DEBUG ===");
+  console.log("Received mode:", mode);
+  console.log("Received token:", token);
+  console.log("Expected token:", process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
+  console.log(
+    "Tokens match:",
+    token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+  );
+  console.log("Challenge:", challenge);
+  console.log("Env var exists:", !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
+  console.log("================================");
 
   // Verify the token matches your environment variable
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-    console.log('✅ Webhook verified successfully!');
+  if (
+    mode === "subscribe" &&
+    token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+  ) {
+    console.log("✅ Webhook verified successfully!");
     // Return the challenge to WhatsApp to confirm verification
     return new NextResponse(challenge, { status: 200 });
   }
 
   // If verification fails, return detailed error for debugging
-  console.error('❌ Webhook verification failed');
-  console.error('Failure reason:', {
-    modeCorrect: mode === 'subscribe',
+  console.error("❌ Webhook verification failed");
+  console.error("Failure reason:", {
+    modeCorrect: mode === "subscribe",
     tokenCorrect: token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
   });
 
-  return new NextResponse('Forbidden', { status: 403 });
+  return new NextResponse("Forbidden", { status: 403 });
 }
 
 /**
@@ -98,7 +104,7 @@ export async function POST(request: NextRequest) {
     // Parse the webhook payload from WhatsApp
     const body = await request.json();
 
-    console.log('Received webhook:', JSON.stringify(body, null, 2));
+    console.log("Received webhook:", JSON.stringify(body, null, 2));
 
     // Extract message data from nested structure
     const entry = body.entry?.[0];
@@ -108,8 +114,8 @@ export async function POST(request: NextRequest) {
 
     // Ignore if no message (could be status update)
     if (!messages) {
-      console.log('No message found, ignoring webhook');
-      return NextResponse.json({ status: 'ok' }, { status: 200 });
+      console.log("No message found, ignoring webhook");
+      return NextResponse.json({ status: "ok" }, { status: 200 });
     }
 
     // Extract message details
@@ -117,7 +123,7 @@ export async function POST(request: NextRequest) {
     const messageId = messages.id;
     const messageText = messages.text?.body;
 
-    console.log('Message received:', { from, messageText, messageId });
+    console.log("Message received:", { from, messageText, messageId });
 
     // Process message with Claude AI
     const aiResponse = await processWithClaude(messageText, from);
@@ -126,12 +132,11 @@ export async function POST(request: NextRequest) {
     await sendWhatsAppMessage(from, aiResponse);
 
     // Return 200 OK quickly (WhatsApp requires response within 20 seconds)
-    return NextResponse.json({ status: 'ok' }, { status: 200 });
-
+    return NextResponse.json({ status: "ok" }, { status: 200 });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error("Webhook error:", error);
     // Still return 200 to prevent WhatsApp from retrying
-    return NextResponse.json({ status: 'error' }, { status: 200 });
+    return NextResponse.json({ status: "error" }, { status: 200 });
   }
 }
 
@@ -139,88 +144,75 @@ export async function POST(request: NextRequest) {
  * Store conversation history per user
  * In production: use Redis or database for persistence across serverless invocations
  */
-const conversationHistory = new Map<string, Array<{ role: 'user' | 'assistant', content: string }>>();
+const conversationHistory = new Map<
+  string,
+  Array<{ role: "user" | "assistant"; content: string }>
+>();
 
 /**
- * Process message with Claude Agent SDK
- * Uses query() API with @anthropic-ai/claude-code package for deployment
+ * Process message with Anthropic SDK
+ * Uses Messages API with streaming for efficient responses
  */
-async function processWithClaude(userMessage: string, phoneNumber: string): Promise<string> {
+async function processWithClaude(
+  userMessage: string,
+  phoneNumber: string
+): Promise<string> {
   try {
-    console.log(`Processing message from ${phoneNumber} with Claude Agent SDK...`);
+    console.log(`Processing message from ${phoneNumber} with Anthropic SDK...`);
 
-    const systemPrompt = process.env.AGENT_SYSTEM_PROMPT ||
-      'You are a helpful WhatsApp assistant. Keep responses concise and friendly since messages are sent via WhatsApp. Aim for 1-3 paragraphs maximum.';
+    const systemPrompt =
+      process.env.AGENT_SYSTEM_PROMPT ||
+      "You are a helpful WhatsApp assistant. Keep responses concise and friendly since messages are sent via WhatsApp. Aim for 1-3 paragraphs maximum.";
+
+    // Initialize the Anthropic client
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
 
     // Get conversation history for this user
     const history = conversationHistory.get(phoneNumber) || [];
 
-    // Build full prompt with conversation history
-    let fullPrompt = userMessage;
-    if (history.length > 0) {
-      const historyText = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
-      fullPrompt = `Previous conversation:\n${historyText}\n\nUser: ${userMessage}`;
-    }
+    // Convert history to Anthropic messages format
+    const messages = history.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
 
-    // Use Claude Agent SDK query() with proper options
-    // Set environment variables before calling query
-    process.env.CLAUDE_CODE_USE_REMOTE = '1';
-
-    // Resolve path to claude-code executable
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require('path');
-    let claudeCodePath: string;
-
-    try {
-      // Try to resolve from node_modules
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const resolvedPath = require.resolve('@anthropic-ai/claude-code/cli.js');
-      claudeCodePath = path.resolve(resolvedPath);
-      console.log('✅ Resolved Claude Code executable:', claudeCodePath);
-    } catch {
-      // Fallback: construct path manually
-      const nodeModulesPath = path.join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
-      claudeCodePath = nodeModulesPath;
-      console.log('⚠️  Using constructed path:', claudeCodePath);
-    }
-
-    console.log('Starting Claude Agent SDK query...');
-    console.log('API Key exists:', !!process.env.ANTHROPIC_API_KEY);
-    console.log('Remote mode:', process.env.CLAUDE_CODE_USE_REMOTE);
-    console.log('Executable path type:', typeof claudeCodePath);
-    console.log('Executable path value:', claudeCodePath);
-
-    const result = query({
-      prompt: fullPrompt,
-      options: {
-        model: 'claude-3-5-sonnet-20241022',
-        systemPrompt: systemPrompt,
-        maxTurns: 5,
-        pathToClaudeCodeExecutable: claudeCodePath,
-      },
+    // Add the new user message
+    messages.push({
+      role: "user",
+      content: userMessage,
     });
 
-    let responseText = '';
+    console.log("Starting Anthropic API call...");
+    console.log("API Key exists:", !!process.env.ANTHROPIC_API_KEY);
+    console.log("Message count:", messages.length);
 
-    // Stream messages from the agent
-    for await (const message of result) {
-      if (message.type === 'assistant') {
-        const content = message.message.content;
-        for (const block of content) {
-          if (block.type === 'text') {
-            responseText += block.text;
-          }
-        }
+    // Make the API call with streaming
+    const stream = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-20241022",
+      system: systemPrompt,
+      messages: messages,
+      max_tokens: 1000,
+      stream: true,
+    });
+
+    let responseText = "";
+
+    // Process the stream
+    for await (const chunk of stream) {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text") {
+        responseText += chunk.delta.text;
       }
     }
 
     if (!responseText) {
-      responseText = 'Sorry, I could not generate a response.';
+      responseText = "Sorry, I could not generate a response.";
     }
 
     // Store in conversation history
-    history.push({ role: 'user', content: userMessage });
-    history.push({ role: 'assistant', content: responseText });
+    history.push({ role: "user", content: userMessage });
+    history.push({ role: "assistant", content: responseText });
 
     // Keep only last 10 messages (5 exchanges) to avoid context getting too large
     if (history.length > 10) {
@@ -229,12 +221,15 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
 
     conversationHistory.set(phoneNumber, history);
 
-    console.log('Agent response received:', responseText.substring(0, 100) + '...');
+    console.log(
+      "Anthropic response received:",
+      responseText.substring(0, 100) + "..."
+    );
 
     return responseText;
   } catch (error) {
-    console.error('Error calling Claude Agent:', error);
-    return 'Sorry, I encountered an error processing your message. Please try again.';
+    console.error("Error calling Anthropic API:", error);
+    return "Sorry, I encountered an error processing your message. Please try again.";
   }
 }
 
@@ -245,18 +240,18 @@ async function sendWhatsAppMessage(to: string, text: string) {
   const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
   const payload = {
-    messaging_product: 'whatsapp',
+    messaging_product: "whatsapp",
     to: to,
-    type: 'text',
-    text: { body: text }
+    type: "text",
+    text: { body: text },
   };
 
   try {
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
     });
@@ -264,14 +259,14 @@ async function sendWhatsAppMessage(to: string, text: string) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('WhatsApp API error:', data);
+      console.error("WhatsApp API error:", data);
       throw new Error(`WhatsApp API error: ${JSON.stringify(data)}`);
     }
 
-    console.log('Message sent successfully:', data);
+    console.log("Message sent successfully:", data);
     return data;
   } catch (error) {
-    console.error('Error sending WhatsApp message:', error);
+    console.error("Error sending WhatsApp message:", error);
     throw error;
   }
 }

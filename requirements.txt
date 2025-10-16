@@ -7,10 +7,7 @@
 # Core Dependencies
 # ============================================
 
-# Claude Agent SDK (for building agents with tool use and MCP)
-claude-agent-sdk>=0.1.0
-
-# Anthropic Claude API (for low-level API access)
+# Anthropic Claude API
 anthropic>=0.18.0
 
 # HTTP Requests (for WhatsApp API calls)
