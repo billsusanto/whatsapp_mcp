@@ -201,7 +201,7 @@ async function processWithClaude(
 
     // Process the stream
     for await (const chunk of stream) {
-      if (chunk.type === "content_block_delta" && chunk.delta.type === "text") {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
         responseText += chunk.delta.text;
       }
     }
