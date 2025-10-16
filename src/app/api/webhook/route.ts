@@ -139,13 +139,11 @@ export async function POST(request: NextRequest) {
  * Store conversation history per user
  * In production: use Redis or database for persistence across serverless invocations
  */
-const conversationSessions = new Map<string, string>();
+const conversationHistory = new Map<string, Array<{ role: 'user' | 'assistant', content: string }>>();
 
 /**
- * Process message with Claude Agent SDK using query()
- *
- * The SDK reads ANTHROPIC_API_KEY from environment variables automatically
- * Maintains conversation history per phone number using session resumption
+ * Process message with Claude Agent SDK
+ * Uses query() API with @anthropic-ai/claude-code package for deployment
  */
 async function processWithClaude(userMessage: string, phoneNumber: string): Promise<string> {
   try {
@@ -154,56 +152,62 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
     const systemPrompt = process.env.AGENT_SYSTEM_PROMPT ||
       'You are a helpful WhatsApp assistant. Keep responses concise and friendly since messages are sent via WhatsApp. Aim for 1-3 paragraphs maximum.';
 
-    // Get previous session ID for this user (for conversation continuity)
-    const previousSession = conversationSessions.get(phoneNumber);
+    // Get conversation history for this user
+    const history = conversationHistory.get(phoneNumber) || [];
 
-    // Use query() function with cloud runtime (no local executable needed)
-    // CLAUDE_CODE_USE_REMOTE=1 tells SDK to use Anthropic's cloud runtime
+    // Build full prompt with conversation history
+    let fullPrompt = userMessage;
+    if (history.length > 0) {
+      const historyText = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
+      fullPrompt = `Previous conversation:\n${historyText}\n\nUser: ${userMessage}`;
+    }
+
+    // Use Claude Agent SDK query() with proper options
     const result = query({
-      prompt: userMessage,
+      prompt: fullPrompt,
       options: {
         model: 'claude-3-5-sonnet-20241022',
         systemPrompt: systemPrompt,
-        maxTurns: 5, // Allow multi-turn conversations
+        maxTurns: 5,
         env: {
           ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-          CLAUDE_CODE_USE_REMOTE: '1', // Enable cloud runtime for serverless
+          CLAUDE_CODE_USE_REMOTE: '1',
         },
-        // Resume previous conversation if exists
-        ...(previousSession && { resume: previousSession }),
       },
     });
 
     let responseText = '';
-    let sessionId = '';
 
-    // Stream messages and collect assistant responses
+    // Stream messages from the agent
     for await (const message of result) {
-      if (message.type === 'system') {
-        // Store session ID for conversation continuity
-        sessionId = message.session_id;
-        console.log(`Session ID for ${phoneNumber}:`, sessionId);
-      } else if (message.type === 'assistant') {
-        // Extract text content from assistant message
+      if (message.type === 'assistant') {
         const content = message.message.content;
         for (const block of content) {
           if (block.type === 'text') {
             responseText += block.text;
           }
         }
-      } else if (message.type === 'result') {
-        console.log('Query completed. Cost:', message.total_cost_usd, 'Tokens:', message.usage);
       }
     }
 
-    // Store session for next message from this user
-    if (sessionId) {
-      conversationSessions.set(phoneNumber, sessionId);
+    if (!responseText) {
+      responseText = 'Sorry, I could not generate a response.';
     }
+
+    // Store in conversation history
+    history.push({ role: 'user', content: userMessage });
+    history.push({ role: 'assistant', content: responseText });
+
+    // Keep only last 10 messages (5 exchanges) to avoid context getting too large
+    if (history.length > 10) {
+      history.splice(0, history.length - 10);
+    }
+
+    conversationHistory.set(phoneNumber, history);
 
     console.log('Agent response received:', responseText.substring(0, 100) + '...');
 
-    return responseText || 'Sorry, I could not generate a response.';
+    return responseText;
   } catch (error) {
     console.error('Error calling Claude Agent:', error);
     return 'Sorry, I encountered an error processing your message. Please try again.';
