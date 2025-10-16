@@ -1,0 +1,64 @@
+# Python Dependencies for WhatsApp MCP Project
+# This project uses:
+# - Next.js (TypeScript) for WhatsApp webhook on Vercel
+# - Python for MCP server on Render
+
+# ============================================
+# Core Dependencies
+# ============================================
+
+# Claude Agent SDK (for building agents with tool use and MCP)
+claude-agent-sdk>=0.1.0
+
+# Anthropic Claude API (for low-level API access)
+anthropic>=0.18.0
+
+# HTTP Requests (for WhatsApp API calls)
+requests>=2.31.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# ============================================
+# MCP Server Dependencies (Render Deployment)
+# ============================================
+
+# Model Context Protocol SDK
+mcp>=0.9.0
+
+# ASGI server for MCP SSE transport
+uvicorn>=0.24.0
+starlette>=0.32.0
+
+# ============================================
+# Optional: Session Management
+# ============================================
+
+# Redis (optional - for production session storage)
+# redis>=5.0.0
+
+# ============================================
+# Development & Testing
+# ============================================
+
+# pytest (for testing)
+# pytest>=7.4.0
+
+# ============================================
+# INSTALLATION INSTRUCTIONS:
+# ============================================
+#
+# 1. Create virtual environment:
+#    python3 -m venv venv
+#
+# 2. Activate virtual environment:
+#    Mac/Linux:  source venv/bin/activate
+#    Windows:    venv\Scripts\activate
+#
+# 3. Install dependencies:
+#    pip install -r requirements.txt
+#
+# 4. For development (with optional packages):
+#    pip install -r requirements.txt flask gunicorn redis pytest
+#
+# ============================================

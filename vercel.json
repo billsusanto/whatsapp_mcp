@@ -1,0 +1,19 @@
+{
+  "version": 2,
+
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+
+  "framework": "nextjs",
+
+  "regions": ["iad1"],
+
+  "env": {
+    "ANTHROPIC_API_KEY": "@anthropic_api_key",
+    "WHATSAPP_ACCESS_TOKEN": "@whatsapp_access_token",
+    "WHATSAPP_PHONE_NUMBER_ID": "@whatsapp_phone_number_id",
+    "WHATSAPP_WEBHOOK_VERIFY_TOKEN": "@whatsapp_webhook_verify_token",
+    "AGENT_SYSTEM_PROMPT": "@agent_system_prompt"
+  }
+}

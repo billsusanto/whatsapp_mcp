@@ -1,0 +1,64 @@
+services:
+  # WhatsApp MCP Server
+  # This service runs the MCP server that exposes WhatsApp functionality
+  # to Claude Desktop and other MCP clients
+  #
+  # NOTE: WhatsApp webhook is handled by Next.js on Vercel, NOT by this service
+
+  - type: web
+    name: whatsapp-mcp-server
+    runtime: python
+    plan: starter  # $7/month - use 'free' for free tier (spins down after 15 min)
+    region: oregon # or 'frankfurt', 'singapore'
+
+    # Build command - install Python dependencies
+    buildCommand: pip install -r requirements.txt
+
+    # Start command - run the MCP server with SSE transport
+    # Note: The server listens on $PORT (provided by Render)
+    startCommand: python src/python/mcp/server.py --transport sse --port $PORT
+
+    # Health check endpoint
+    # TODO: Add /health endpoint in MCP server for Render to ping
+    healthCheckPath: /health
+
+    # Environment variables
+    # NOTE: Set these in Render dashboard (don't commit secrets!)
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false  # Set manually in dashboard
+
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+
+      - key: AGENT_SYSTEM_PROMPT
+        sync: false
+
+      - key: PORT
+        value: 8080  # Default port (Render overrides this)
+
+    # Auto-deploy when pushing to main branch
+    autoDeploy: true
+
+# ============================================
+# DEPLOYMENT INSTRUCTIONS:
+# ============================================
+#
+# This file deploys ONLY the MCP server to Render.
+# The Next.js webhook is deployed separately to Vercel.
+#
+# 1. Push this repo to GitHub
+# 2. Go to render.com and sign up/login
+# 3. Click "New" -> "Blueprint"
+# 4. Connect your GitHub repo
+# 5. Render will detect this file and create the service
+# 6. Set environment variables in Render dashboard
+# 7. Deploy!
+#
+# Your MCP server will be available at:
+# https://whatsapp-mcp-server.onrender.com/sse
+#
+# ============================================

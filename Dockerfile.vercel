@@ -1,0 +1,54 @@
+# ============================================
+# Dockerfile for Vercel Deployment
+# (Agent Server + Next.js Webhook)
+# ============================================
+
+# TODO: Use multi-stage build for optimization
+
+# ============================================
+# Stage 1: Dependencies
+# ============================================
+# FROM node:20-alpine AS deps
+# TODO: Set working directory to /app
+# TODO: Copy package.json and package-lock.json
+# TODO: Run npm ci --only=production to install production dependencies
+
+# ============================================
+# Stage 2: Builder
+# ============================================
+# FROM node:20-alpine AS builder
+# TODO: Copy dependencies from deps stage
+# TODO: Copy all source code
+# TODO: Run npm run build to build Next.js app
+# TODO: This creates .next/ directory with optimized production build
+
+# ============================================
+# Stage 3: Runner (Final Production Image)
+# ============================================
+# FROM node:20-alpine AS runner
+# TODO: Set NODE_ENV=production
+# TODO: Create non-root user for security
+# TODO: Set working directory
+# TODO: Copy built files from builder stage
+# TODO: Copy node_modules from deps stage
+# TODO: Expose port (Vercel typically uses PORT env var)
+# TODO: Set CMD to start Next.js: ["node_modules/.bin/next", "start"]
+
+# ============================================
+# Environment Variables (Set in Vercel Dashboard)
+# ============================================
+# - ANTHROPIC_API_KEY
+# - WHATSAPP_ACCESS_TOKEN
+# - WHATSAPP_PHONE_NUMBER_ID
+# - PORT (automatically set by Vercel)
+
+# ============================================
+# Notes:
+# ============================================
+# - Vercel may not use this Dockerfile directly (uses their own build system)
+# - This Dockerfile is useful for:
+#   1. Local Docker development
+#   2. Testing production build locally
+#   3. Alternative deployment to other platforms
+# - For Vercel, they auto-detect Next.js and build accordingly
+# - You can force Vercel to use this Dockerfile with vercel.json configuration

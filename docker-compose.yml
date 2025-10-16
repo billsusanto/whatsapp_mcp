@@ -1,0 +1,108 @@
+# ============================================
+# Docker Compose for Local Development
+# ============================================
+# TODO: This file orchestrates both services locally
+# Run with: docker-compose up --build
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # Next.js Webhook + Agent Server (Vercel)
+  # ==========================================
+  # TODO: Define webhook service
+  # webhook:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.vercel
+  #   container_name: whatsapp-webhook
+  #   ports:
+  #     - "3000:3000"  # Next.js dev server
+  #   environment:
+  #     - NODE_ENV=development
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #     - WHATSAPP_ACCESS_TOKEN=${WHATSAPP_ACCESS_TOKEN}
+  #     - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
+  #     - WHATSAPP_WEBHOOK_VERIFY_TOKEN=${WHATSAPP_WEBHOOK_VERIFY_TOKEN}
+  #     - MCP_SERVER_URL=http://mcp-server:10000  # Internal Docker network
+  #   volumes:
+  #     - ./src:/app/src  # Hot reload for development
+  #     - ./public:/app/public
+  #     - /app/node_modules  # Don't override node_modules
+  #     - /app/.next        # Don't override build
+  #   depends_on:
+  #     - mcp-server  # Wait for MCP server to start first
+  #   networks:
+  #     - whatsapp-network
+
+  # ==========================================
+  # Python MCP Server (Render)
+  # ==========================================
+  # TODO: Define MCP server service
+  # mcp-server:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.render
+  #   container_name: whatsapp-mcp-server
+  #   ports:
+  #     - "10000:10000"  # MCP server port
+  #   environment:
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #     - WHATSAPP_ACCESS_TOKEN=${WHATSAPP_ACCESS_TOKEN}
+  #     - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
+  #     - PORT=10000
+  #     - MCP_TRANSPORT=sse
+  #   volumes:
+  #     - ./src/python:/app/src/python  # Hot reload Python code
+  #   networks:
+  #     - whatsapp-network
+
+  # ==========================================
+  # Optional: Redis for Session Storage
+  # ==========================================
+  # TODO: Uncomment if using Redis for production sessions
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: whatsapp-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - whatsapp-network
+
+# ============================================
+# Networks
+# ============================================
+# TODO: Define shared network for inter-service communication
+# networks:
+#   whatsapp-network:
+#     driver: bridge
+
+# ============================================
+# Volumes (Optional)
+# ============================================
+# TODO: Define persistent volumes
+# volumes:
+#   redis-data:  # Persist Redis data
+
+# ============================================
+# Usage Instructions:
+# ============================================
+# 1. Make sure .env file exists with all required variables
+# 2. Build and start: docker-compose up --build
+# 3. Access webhook: http://localhost:3000/api/webhook
+# 4. Access MCP server: http://localhost:10000
+# 5. Stop: docker-compose down
+# 6. Clean up: docker-compose down -v (removes volumes)
+#
+# For production-like testing:
+# docker-compose up --build -d  (detached mode)
+
+# ============================================
+# Development Tips:
+# ============================================
+# - Use volumes for hot reload during development
+# - Both services can communicate via service names (webhook → mcp-server)
+# - For ngrok testing, expose webhook service externally
+# - Example: ngrok http 3000 → Get URL → Configure in Meta Dashboard
