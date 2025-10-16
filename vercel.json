@@ -7,13 +7,5 @@
 
   "framework": "nextjs",
 
-  "regions": ["iad1"],
-
-  "env": {
-    "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
-    "WHATSAPP_ACCESS_TOKEN": "${WHATSAPP_ACCESS_TOKEN}",
-    "WHATSAPP_PHONE_NUMBER_ID": "${WHATSAPP_PHONE_NUMBER_ID}",
-    "WHATSAPP_WEBHOOK_VERIFY_TOKEN": "${WHATSAPP_WEBHOOK_VERIFY_TOKEN}",
-    "AGENT_SYSTEM_PROMPT": "${AGENT_SYSTEM_PROMPT}"
-  }
+  "regions": ["iad1"]
 }
