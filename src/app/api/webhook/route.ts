@@ -23,9 +23,25 @@ import { NextRequest, NextResponse } from 'next/server';
  * DOCS: https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
  */
 export async function GET(request: NextRequest) {
-  // TODO: Implement webhook verification
+  // Extract query parameters from WhatsApp verification request
+  const searchParams = request.nextUrl.searchParams;
+  const mode = searchParams.get('hub.mode');
+  const token = searchParams.get('hub.verify_token');
+  const challenge = searchParams.get('hub.challenge');
 
-  return new NextResponse('Not implemented', { status: 501 });
+  // Log verification attempt for debugging
+  console.log('Webhook verification request:', { mode, token: token?.substring(0, 10) + '...' });
+
+  // Verify the token matches your environment variable
+  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
+    console.log('Webhook verified successfully!');
+    // Return the challenge to WhatsApp to confirm verification
+    return new NextResponse(challenge, { status: 200 });
+  }
+
+  // If verification fails, return 403 Forbidden
+  console.error('Webhook verification failed');
+  return new NextResponse('Forbidden', { status: 403 });
 }
 
 /**
@@ -66,15 +82,39 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // TODO: Parse body
+    // Parse the webhook payload from WhatsApp
     const body = await request.json();
 
-    // TODO: Extract message data
+    console.log('Received webhook:', JSON.stringify(body, null, 2));
 
-    // TODO: Process with agent (temporary TypeScript implementation)
-    // Later: Call Python agent system
+    // Extract message data from nested structure
+    const entry = body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+    const messages = value?.messages?.[0];
 
-    // TODO: Send response via WhatsApp API
+    // Ignore if no message (could be status update)
+    if (!messages) {
+      console.log('No message found, ignoring webhook');
+      return NextResponse.json({ status: 'ok' }, { status: 200 });
+    }
+
+    // Extract message details
+    const from = messages.from; // Phone number of sender
+    const messageId = messages.id;
+    const messageText = messages.text?.body;
+    const timestamp = messages.timestamp;
+
+    console.log('Message received:', { from, messageText, messageId });
+
+    // TODO: Process with Claude Agent SDK
+    // For now, we'll send a simple echo response
+    // Later: Integrate with @anthropic-ai/claude-agent-sdk
+
+    const aiResponse = `Echo: ${messageText}\n\n(AI integration coming soon!)`;
+
+    // Send response back to user via WhatsApp API
+    await sendWhatsAppMessage(from, aiResponse);
 
     // Return 200 OK quickly (WhatsApp requires response within 20 seconds)
     return NextResponse.json({ status: 'ok' }, { status: 200 });
@@ -83,5 +123,43 @@ export async function POST(request: NextRequest) {
     console.error('Webhook error:', error);
     // Still return 200 to prevent WhatsApp from retrying
     return NextResponse.json({ status: 'error' }, { status: 200 });
+  }
+}
+
+/**
+ * Send a WhatsApp message via Cloud API
+ */
+async function sendWhatsAppMessage(to: string, text: string) {
+  const url = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    to: to,
+    type: 'text',
+    text: { body: text }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('WhatsApp API error:', data);
+      throw new Error(`WhatsApp API error: ${JSON.stringify(data)}`);
+    }
+
+    console.log('Message sent successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('Error sending WhatsApp message:', error);
+    throw error;
   }
 }
