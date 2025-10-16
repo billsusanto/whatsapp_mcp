@@ -10,10 +10,10 @@
   "regions": ["iad1"],
 
   "env": {
-    "ANTHROPIC_API_KEY": "@anthropic_api_key",
-    "WHATSAPP_ACCESS_TOKEN": "@whatsapp_access_token",
-    "WHATSAPP_PHONE_NUMBER_ID": "@whatsapp_phone_number_id",
-    "WHATSAPP_WEBHOOK_VERIFY_TOKEN": "@whatsapp_webhook_verify_token",
-    "AGENT_SYSTEM_PROMPT": "@agent_system_prompt"
+    "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+    "WHATSAPP_ACCESS_TOKEN": "${WHATSAPP_ACCESS_TOKEN}",
+    "WHATSAPP_PHONE_NUMBER_ID": "${WHATSAPP_PHONE_NUMBER_ID}",
+    "WHATSAPP_WEBHOOK_VERIFY_TOKEN": "${WHATSAPP_WEBHOOK_VERIFY_TOKEN}",
+    "AGENT_SYSTEM_PROMPT": "${AGENT_SYSTEM_PROMPT}"
   }
 }
