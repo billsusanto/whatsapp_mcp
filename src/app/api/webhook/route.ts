@@ -116,7 +116,6 @@ export async function POST(request: NextRequest) {
     const from = messages.from; // Phone number of sender
     const messageId = messages.id;
     const messageText = messages.text?.body;
-    const timestamp = messages.timestamp;
 
     console.log('Message received:', { from, messageText, messageId });
 
@@ -181,7 +180,7 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
     for await (const message of result) {
       if (message.type === 'system') {
         // Store session ID for conversation continuity
-        sessionId = message.sessionId;
+        sessionId = message.session_id;
         console.log(`Session ID for ${phoneNumber}:`, sessionId);
       } else if (message.type === 'assistant') {
         // Extract text content from assistant message
