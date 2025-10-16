@@ -8,7 +8,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import path from 'path';
 
 /**
  * GET handler for webhook verification
@@ -158,24 +157,17 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
     // Get previous session ID for this user (for conversation continuity)
     const previousSession = conversationSessions.get(phoneNumber);
 
-    // Set path to Claude Code CLI executable
-    // In production (Vercel), it's bundled in node_modules
-    const cliPath = path.join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-
-    console.log('Claude CLI path:', cliPath);
-
-    // Use query() function to get response from Claude
-    // API key is read from ANTHROPIC_API_KEY environment variable
+    // Use query() function with cloud runtime (no local executable needed)
+    // CLAUDE_CODE_USE_REMOTE=1 tells SDK to use Anthropic's cloud runtime
     const result = query({
       prompt: userMessage,
       options: {
         model: 'claude-3-5-sonnet-20241022',
         systemPrompt: systemPrompt,
         maxTurns: 5, // Allow multi-turn conversations
-        pathToClaudeCodeExecutable: cliPath,
-        executable: 'node',
         env: {
           ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+          CLAUDE_CODE_USE_REMOTE: '1', // Enable cloud runtime for serverless
         },
         // Resume previous conversation if exists
         ...(previousSession && { resume: previousSession }),
