@@ -166,9 +166,29 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
     // Set environment variables before calling query
     process.env.CLAUDE_CODE_USE_REMOTE = '1';
 
+    // Resolve path to claude-code executable
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    let claudeCodePath: string;
+
+    try {
+      // Try to resolve from node_modules
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const resolvedPath = require.resolve('@anthropic-ai/claude-code/cli.js');
+      claudeCodePath = path.resolve(resolvedPath);
+      console.log('✅ Resolved Claude Code executable:', claudeCodePath);
+    } catch {
+      // Fallback: construct path manually
+      const nodeModulesPath = path.join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+      claudeCodePath = nodeModulesPath;
+      console.log('⚠️  Using constructed path:', claudeCodePath);
+    }
+
     console.log('Starting Claude Agent SDK query...');
     console.log('API Key exists:', !!process.env.ANTHROPIC_API_KEY);
     console.log('Remote mode:', process.env.CLAUDE_CODE_USE_REMOTE);
+    console.log('Executable path type:', typeof claudeCodePath);
+    console.log('Executable path value:', claudeCodePath);
 
     const result = query({
       prompt: fullPrompt,
@@ -176,6 +196,7 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
         model: 'claude-3-5-sonnet-20241022',
         systemPrompt: systemPrompt,
         maxTurns: 5,
+        pathToClaudeCodeExecutable: claudeCodePath,
       },
     });
 
