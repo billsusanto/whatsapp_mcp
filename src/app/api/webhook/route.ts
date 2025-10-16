@@ -164,11 +164,17 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
 
     // Use Claude Agent SDK query() with proper options
     // Point to the claude-code CLI executable
-    // The package.json bin points to cli.js
-    const claudeCodePath = process.env.CLAUDE_CODE_EXECUTABLE ||
-                          require.resolve('@anthropic-ai/claude-code/cli.js');
-
-    console.log('Using Claude Code executable at:', claudeCodePath);
+    let claudeCodePath: string;
+    try {
+      claudeCodePath = process.env.CLAUDE_CODE_EXECUTABLE ||
+                       require.resolve('@anthropic-ai/claude-code/cli.js');
+      console.log('✅ Resolved Claude Code path:', claudeCodePath);
+    } catch (error) {
+      console.error('❌ Could not resolve claude-code path:', error);
+      // Fallback to common Vercel path
+      claudeCodePath = '/vercel/path0/node_modules/@anthropic-ai/claude-code/cli.js';
+      console.log('Using fallback path:', claudeCodePath);
+    }
 
     const result = query({
       prompt: fullPrompt,
@@ -177,9 +183,10 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
         systemPrompt: systemPrompt,
         maxTurns: 5,
         pathToClaudeCodeExecutable: claudeCodePath,
+        executable: 'node',
         env: {
-          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-          CLAUDE_CODE_USE_REMOTE: '1',
+          'ANTHROPIC_API_KEY': process.env.ANTHROPIC_API_KEY || '',
+          'CLAUDE_CODE_USE_REMOTE': '1',
         },
       },
     });
