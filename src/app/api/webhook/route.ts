@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
 /**
  * GET handler for webhook verification
@@ -137,42 +137,48 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Process message with Claude AI
+ * Process message with Claude Agent SDK using query()
  */
 async function processWithClaude(userMessage: string, phoneNumber: string): Promise<string> {
   try {
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
+    console.log('Processing with Claude Agent SDK...');
 
     const systemPrompt = process.env.AGENT_SYSTEM_PROMPT ||
-      'You are a helpful WhatsApp assistant. Keep responses concise and friendly.';
+      'You are a helpful WhatsApp assistant. Keep responses concise and friendly since messages are sent via WhatsApp. Limit responses to 1-2 paragraphs.';
 
-    console.log('Calling Claude API...');
-
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: userMessage,
-        },
-      ],
+    // Use query() function to get response from Claude
+    const result = query({
+      prompt: userMessage,
+      options: {
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        model: 'claude-3-5-sonnet-20241022',
+        systemPrompt: systemPrompt,
+        maxTurns: 1, // Single turn for WhatsApp responses
+      },
     });
 
-    // Extract text from response
-    const aiResponse = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.type === 'text' ? block.text : '')
-      .join('\n');
+    let responseText = '';
 
-    console.log('Claude response received:', aiResponse.substring(0, 100) + '...');
+    // Stream messages and collect assistant responses
+    for await (const message of result) {
+      if (message.type === 'assistant') {
+        // Extract text content from assistant message
+        const content = message.message.content;
+        for (const block of content) {
+          if (block.type === 'text') {
+            responseText += block.text;
+          }
+        }
+      } else if (message.type === 'result') {
+        console.log('Query completed. Cost:', message.total_cost_usd, 'Tokens:', message.usage);
+      }
+    }
 
-    return aiResponse || 'Sorry, I could not generate a response.';
+    console.log('Agent response received:', responseText.substring(0, 100) + '...');
+
+    return responseText || 'Sorry, I could not generate a response.';
   } catch (error) {
-    console.error('Error calling Claude API:', error);
+    console.error('Error calling Claude Agent:', error);
     return 'Sorry, I encountered an error processing your message. Please try again.';
   }
 }
