@@ -163,12 +163,20 @@ async function processWithClaude(userMessage: string, phoneNumber: string): Prom
     }
 
     // Use Claude Agent SDK query() with proper options
+    // Point to the claude-code CLI executable
+    // The package.json bin points to cli.js
+    const claudeCodePath = process.env.CLAUDE_CODE_EXECUTABLE ||
+                          require.resolve('@anthropic-ai/claude-code/cli.js');
+
+    console.log('Using Claude Code executable at:', claudeCodePath);
+
     const result = query({
       prompt: fullPrompt,
       options: {
         model: 'claude-3-5-sonnet-20241022',
         systemPrompt: systemPrompt,
         maxTurns: 5,
+        pathToClaudeCodeExecutable: claudeCodePath,
         env: {
           ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
           CLAUDE_CODE_USE_REMOTE: '1',

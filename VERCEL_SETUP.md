@@ -95,9 +95,12 @@ vercel --prod
 ## Troubleshooting
 
 ### "Claude Code executable not found"
-- ✅ Fixed by installing `@anthropic-ai/claude-code` globally
+- ✅ Fixed by installing `@anthropic-ai/claude-code` as dependency
+- ✅ Code now uses `require.resolve('@anthropic-ai/claude-code/cli.js')` to find executable
+- ✅ Explicitly sets `pathToClaudeCodeExecutable` option
 - ✅ Check vercel.json has `installCommand` with `-g @anthropic-ai/claude-code`
 - ✅ Check package.json has `postinstall` script
+- 🔧 Optional: Set `CLAUDE_CODE_EXECUTABLE` env var to override path
 
 ### "Function timeout"
 - Increase `maxDuration` in vercel.json (max 60s on Hobby plan, 300s on Pro)
