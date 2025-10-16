@@ -29,18 +29,30 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  // Log verification attempt for debugging
-  console.log('Webhook verification request:', { mode, token: token?.substring(0, 10) + '...' });
+  // Enhanced debugging - show exact values
+  console.log('=== WEBHOOK VERIFICATION DEBUG ===');
+  console.log('Received mode:', mode);
+  console.log('Received token:', token);
+  console.log('Expected token:', process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
+  console.log('Tokens match:', token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
+  console.log('Challenge:', challenge);
+  console.log('Env var exists:', !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN);
+  console.log('================================');
 
   // Verify the token matches your environment variable
   if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-    console.log('Webhook verified successfully!');
+    console.log('✅ Webhook verified successfully!');
     // Return the challenge to WhatsApp to confirm verification
     return new NextResponse(challenge, { status: 200 });
   }
 
-  // If verification fails, return 403 Forbidden
-  console.error('Webhook verification failed');
+  // If verification fails, return detailed error for debugging
+  console.error('❌ Webhook verification failed');
+  console.error('Failure reason:', {
+    modeCorrect: mode === 'subscribe',
+    tokenCorrect: token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+  });
+
   return new NextResponse('Forbidden', { status: 403 });
 }
 
