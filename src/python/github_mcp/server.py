@@ -38,22 +38,23 @@ def create_github_mcp_config(token: Optional[str] = None, readonly: bool = False
         )
 
     # Return GitHub MCP server config as dict
-    # Using GitHub's official remote HTTP MCP server (recommended approach)
+    # Using GitHub's official MCP server binary with stdio transport
     # See: https://github.com/github/github-mcp-server
 
-    # GitHub's remote MCP server endpoint
+    # GitHub MCP server using npx with stdio transport
+    # This matches the format expected by Claude Agent SDK
     config = {
-        "url": "https://api.githubcopilot.com/mcp/",
-        "headers": {
-            "Authorization": f"Bearer {github_token}"
+        "command": "npx",
+        "args": [
+            "-y",
+            "@modelcontextprotocol/server-github"
+        ],
+        "env": {
+            "GITHUB_PERSONAL_ACCESS_TOKEN": github_token
         }
     }
 
-    # Add read-only header if requested
-    if readonly:
-        config["headers"]["X-MCP-Readonly"] = "true"
-
-    print(f"✅ GitHub MCP configured (remote HTTP, readonly={readonly})")
+    print(f"✅ GitHub MCP configured (stdio transport, readonly={readonly})")
 
     return config
 
