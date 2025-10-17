@@ -85,7 +85,8 @@ async def health_check():
         "github_token_configured": bool(os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")),
         "netlify_mcp_enabled": agent_manager.enable_netlify,
         "netlify_token_configured": bool(os.getenv("NETLIFY_PERSONAL_ACCESS_TOKEN")),
-        "active_agents": agent_manager.get_active_agents_count()
+        "active_agents": agent_manager.get_active_agents_count(),
+        "available_mcp_servers": list(agent_manager.available_mcp_servers.keys())
     }
 
 
