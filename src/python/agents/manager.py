@@ -16,13 +16,14 @@ from agents.session import SessionManager
 class AgentManager:
     """Manages multiple agent instances"""
 
-    def __init__(self, whatsapp_mcp_tools: Optional[list] = None, enable_github: bool = False):
+    def __init__(self, whatsapp_mcp_tools: Optional[list] = None, enable_github: bool = False, enable_netlify: bool = False):
         """
         Initialize the agent manager
 
         Args:
             whatsapp_mcp_tools: List of WhatsApp MCP tools
             enable_github: Whether to enable GitHub MCP integration
+            enable_netlify: Whether to enable Netlify MCP integration
         """
         self.session_manager = SessionManager()
         self.agents: Dict[str, Agent] = {}
@@ -55,6 +56,27 @@ class AgentManager:
                 import traceback
                 traceback.print_exc()
                 self.enable_github = False
+
+        # 3. Add Netlify MCP if enabled
+        self.enable_netlify = enable_netlify
+        if self.enable_netlify:
+            try:
+                sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                from netlify_mcp.server import create_netlify_mcp_config
+
+                # Create Netlify MCP config and add to available servers
+                netlify_config = create_netlify_mcp_config()
+                self.available_mcp_servers["netlify"] = netlify_config
+                print("✅ Netlify MCP configured")
+            except ValueError as e:
+                print(f"⚠️  Netlify MCP not available: {e}")
+                print("   Set NETLIFY_PERSONAL_ACCESS_TOKEN environment variable to enable")
+                self.enable_netlify = False
+            except Exception as e:
+                print(f"❌ Failed to configure Netlify MCP: {e}")
+                import traceback
+                traceback.print_exc()
+                self.enable_netlify = False
 
         print(f"\nAgentManager initialized")
         print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")

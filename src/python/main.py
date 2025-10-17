@@ -56,9 +56,11 @@ async def whatsapp_send_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 # Initialize Agent Manager with available MCP servers
 enable_github = os.getenv("ENABLE_GITHUB_MCP", "false").lower() == "true"
+enable_netlify = os.getenv("ENABLE_NETLIFY_MCP", "false").lower() == "true"
 agent_manager = AgentManager(
     whatsapp_mcp_tools=[whatsapp_send_tool],
-    enable_github=enable_github
+    enable_github=enable_github,
+    enable_netlify=enable_netlify
 )
 
 # Pydantic models for API
@@ -81,6 +83,8 @@ async def health_check():
         "whatsapp_configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN")),
         "github_mcp_enabled": agent_manager.enable_github,
         "github_token_configured": bool(os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")),
+        "netlify_mcp_enabled": agent_manager.enable_netlify,
+        "netlify_token_configured": bool(os.getenv("NETLIFY_PERSONAL_ACCESS_TOKEN")),
         "active_agents": agent_manager.get_active_agents_count()
     }
 

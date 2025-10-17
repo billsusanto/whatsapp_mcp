@@ -26,7 +26,8 @@ class ClaudeSDK:
                                   Format: {"server_name": server_config or tools_list}
                                   Example: {
                                       "whatsapp": [send_whatsapp_tool],
-                                      "github": {"url": "...", "headers": {...}}
+                                      "github": {"command": "npx", "args": [...], "env": {...}},
+                                      "netlify": {"command": "npx", "args": [...], "env": {...}}
                                   }
         """
         self.api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -36,8 +37,18 @@ class ClaudeSDK:
         # Build system prompt with MCP server info
         base_prompt = system_prompt or os.getenv(
             "AGENT_SYSTEM_PROMPT",
-            "You are a helpful WhatsApp assistant with access to GitHub. Keep responses concise and friendly."
+            "You are a professional and helpful assistant. Keep responses concise and friendly."
         )
+
+        # If WhatsApp MCP is available, enhance prompt
+        if available_mcp_servers and "whatsapp" in available_mcp_servers:
+            base_prompt += """
+
+You have access to WhatsApp MCP tools for messaging. Available operations include:
+- send_whatsapp: Send WhatsApp messages to users
+
+IMPORTANT: Use WhatsApp MCP tools (mcp__whatsapp__*) when you need to send messages to users.
+"""
 
         # If GitHub MCP is available, enhance prompt
         if available_mcp_servers and "github" in available_mcp_servers:
@@ -56,6 +67,36 @@ You have access to GitHub MCP tools for repository management. Available operati
 - create_branch: Create branches
 
 IMPORTANT: Always use the GitHub MCP tools (mcp__github__*) for GitHub operations instead of bash/curl/gh CLI.
+"""
+
+        # If Netlify MCP is available, enhance prompt
+        if available_mcp_servers and "netlify" in available_mcp_servers:
+            base_prompt += """
+
+You have access to Netlify MCP tools for site deployment and management. Available operations include:
+- create-site: Create new Netlify sites
+- deploy-site: Deploy sites to production or preview
+- list-sites: View all user's Netlify sites
+- get-site-info: Get detailed information about a site
+- delete-site: Remove Netlify sites
+- trigger-build: Start new builds
+- list-deploys: View deployment history for a site
+- get-deploy-info: Get details about a specific deployment
+- cancel-deploy: Stop running deployments
+- restore-deploy: Rollback to a previous deployment
+- set-env-vars: Configure environment variables
+- get-env-var: Retrieve environment variables
+- link-site: Link a local directory to a Netlify site
+- unlink-site: Disconnect a site linkage
+
+IMPORTANT:
+1. Always use Netlify MCP tools (mcp__netlify__*) for deployment operations
+2. When deploying from GitHub repos, you may need to ask the user for:
+   - Repository name (format: owner/repo)
+   - Build command (e.g., "npm run build", "hugo", "jekyll build")
+   - Publish directory (e.g., "dist", "build", "public", "_site")
+3. After successful deployment, always provide the live URL to the user
+4. Monitor deployment progress and report the status
 """
 
         self.system_prompt = base_prompt
