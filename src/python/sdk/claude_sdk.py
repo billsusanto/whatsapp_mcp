@@ -33,10 +33,32 @@ class ClaudeSDK:
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
-        self.system_prompt = system_prompt or os.getenv(
+        # Build system prompt with MCP server info
+        base_prompt = system_prompt or os.getenv(
             "AGENT_SYSTEM_PROMPT",
             "You are a helpful WhatsApp assistant with access to GitHub. Keep responses concise and friendly."
         )
+
+        # If GitHub MCP is available, enhance prompt
+        if available_mcp_servers and "github" in available_mcp_servers:
+            base_prompt += """
+
+You have access to GitHub MCP tools for repository management. Available operations include:
+- list_repositories: List user's repositories
+- get_repository: Get details about a specific repository
+- create_repository: Create a new repository
+- search_repositories: Search for repositories
+- create_or_update_file: Create or update files in a repository
+- search_code: Search for code across repositories
+- create_issue: Create issues
+- create_pull_request: Create pull requests
+- fork_repository: Fork a repository
+- create_branch: Create branches
+
+IMPORTANT: Always use the GitHub MCP tools (mcp__github__*) for GitHub operations instead of bash/curl/gh CLI.
+"""
+
+        self.system_prompt = base_prompt
 
         self.model = "claude-3-5-sonnet-20241022"
         self.available_mcp_servers = available_mcp_servers or {}
@@ -87,7 +109,8 @@ class ClaudeSDK:
                 options = ClaudeAgentOptions(
                     mcp_servers=mcp_servers,
                     allowed_tools=allowed_tools,
-                    permission_mode='bypassPermissions'  # Auto-approve all tool usage
+                    permission_mode='bypassPermissions',  # Auto-approve all tool usage
+                    system_prompt=self.system_prompt  # Pass enhanced system prompt
                 )
                 print(f"Total MCP servers: {len(mcp_servers)}")
                 print(f"Allowed tools: {allowed_tools}")
