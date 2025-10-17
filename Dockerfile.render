@@ -24,10 +24,11 @@ RUN apt-get update && apt-get install -y \
 
 # Install Claude Code CLI and MCP servers globally
 # Pre-installing these prevents npx from downloading at runtime (which times out)
-RUN npm install -g \
-    @anthropic-ai/claude-code \
-    @modelcontextprotocol/server-github \
-    @netlify/mcp
+RUN npm install -g @anthropic-ai/claude-code && \
+    npm install -g @modelcontextprotocol/server-github && \
+    npm install -g @netlify/mcp && \
+    echo "✓ Installed MCP packages successfully" && \
+    npm list -g --depth=0 | grep -E "(claude-code|server-github|netlify/mcp)" || echo "⚠️ Warning: Some packages may not have installed"
 
 # Create non-root user for security
 RUN useradd -m -u 1001 agentuser
