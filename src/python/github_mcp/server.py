@@ -38,36 +38,22 @@ def create_github_mcp_config(token: Optional[str] = None, readonly: bool = False
         )
 
     # Return GitHub MCP server config as dict
-    # Using the pre-installed GitHub MCP server from Dockerfile
-    # Try direct execution first, fall back to npx if not available
-    import shutil
+    # Using GitHub's official remote HTTP MCP server (recommended approach)
+    # See: https://github.com/github/github-mcp-server
 
-    # Check if mcp-server-github is in PATH (globally installed)
-    mcp_server_path = shutil.which("mcp-server-github")
+    # GitHub's remote MCP server endpoint
+    config = {
+        "url": "https://api.githubcopilot.com/mcp/",
+        "headers": {
+            "Authorization": f"Bearer {github_token}"
+        }
+    }
 
-    if mcp_server_path:
-        # Use direct execution (faster, no npx overhead)
-        config = {
-            "command": "mcp-server-github",
-            "args": [],
-            "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": github_token
-            }
-        }
-        print(f"✅ GitHub MCP configured (direct execution, readonly={readonly})")
-    else:
-        # Fallback to npx (will download package if needed)
-        config = {
-            "command": "npx",
-            "args": [
-                "-y",
-                "@modelcontextprotocol/server-github"
-            ],
-            "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": github_token
-            }
-        }
-        print(f"✅ GitHub MCP configured (npx fallback, readonly={readonly})")
+    # Add read-only header if requested
+    if readonly:
+        config["headers"]["X-MCP-Readonly"] = "true"
+
+    print(f"✅ GitHub MCP configured (remote HTTP, readonly={readonly})")
 
     return config
 
