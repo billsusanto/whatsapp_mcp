@@ -44,15 +44,24 @@ def create_netlify_mcp_config(token: Optional[str] = None) -> Dict[str, Any]:
 
     # Netlify MCP server using npx with stdio transport
     # This matches the format expected by Claude Agent SDK
+    # Include GitHub token for repo linking capabilities
+    env_vars = {
+        "NETLIFY_PERSONAL_ACCESS_TOKEN": netlify_token
+    }
+
+    # Add GitHub token if available (needed for GitHub repo linking)
+    github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    if github_token:
+        env_vars["GITHUB_TOKEN"] = github_token
+        print("  ✓ GitHub token included for repo linking")
+
     config = {
         "command": "npx",
         "args": [
             "-y",
             "@netlify/mcp"
         ],
-        "env": {
-            "NETLIFY_PERSONAL_ACCESS_TOKEN": netlify_token
-        }
+        "env": env_vars
     }
 
     print(f"✅ Netlify MCP configured (stdio transport)")
