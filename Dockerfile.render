@@ -22,8 +22,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI and MCP servers globally
+# Pre-installing these prevents npx from downloading at runtime (which times out)
+RUN npm install -g \
+    @anthropic-ai/claude-code \
+    @modelcontextprotocol/server-github \
+    @netlify/mcp
 
 # Create non-root user for security
 RUN useradd -m -u 1001 agentuser
