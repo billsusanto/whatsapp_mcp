@@ -16,23 +16,37 @@ from agents.session import SessionManager
 class Agent:
     """Individual Claude agent for handling WhatsApp conversations"""
 
-    def __init__(self, phone_number: str, session_manager: SessionManager, mcp_tools: Optional[list] = None):
+    def __init__(
+        self,
+        phone_number: str,
+        session_manager: SessionManager,
+        available_mcp_servers: Optional[dict] = None
+    ):
         """
         Initialize an agent for a specific user
 
         Args:
             phone_number: The WhatsApp user's phone number
             session_manager: Shared session manager instance
-            mcp_tools: List of MCP tools to register with the agent
+            available_mcp_servers: Dict of MCP servers available to this agent
+                                  Format: {"server_name": server_config or tools_list}
+                                  Example: {
+                                      "whatsapp": [send_whatsapp_tool],
+                                      "github": {"url": "...", "headers": {...}}
+                                  }
         """
         self.phone_number = phone_number
         self.session_manager = session_manager
-        self.mcp_tools = mcp_tools or []
+        self.available_mcp_servers = available_mcp_servers or {}
 
-        # Initialize Claude SDK with tools
-        self.claude_sdk = ClaudeSDK(tools=self.mcp_tools)
+        # Initialize Claude SDK with all available MCP servers
+        self.claude_sdk = ClaudeSDK(
+            available_mcp_servers=self.available_mcp_servers
+        )
 
-        print(f"Agent created for {phone_number} with {len(self.mcp_tools)} MCP tools")
+        server_names = list(self.available_mcp_servers.keys())
+        print(f"Agent created for {phone_number}")
+        print(f"  Available MCP servers: {server_names if server_names else 'none'}")
 
     async def process_message(self, user_message: str) -> str:
         """

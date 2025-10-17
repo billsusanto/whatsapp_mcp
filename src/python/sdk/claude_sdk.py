@@ -12,13 +12,22 @@ from typing import List, Dict, Optional, AsyncIterator
 class ClaudeSDK:
     """Wrapper around Claude Agent SDK for agent interactions"""
 
-    def __init__(self, system_prompt: Optional[str] = None, tools: Optional[List] = None):
+    def __init__(
+        self,
+        system_prompt: Optional[str] = None,
+        available_mcp_servers: Optional[Dict[str, any]] = None
+    ):
         """
         Initialize Claude Agent SDK
 
         Args:
             system_prompt: Optional system prompt (defaults to env var)
-            tools: Optional list of MCP tools (decorated with @tool)
+            available_mcp_servers: Dict of MCP servers to make available to Claude
+                                  Format: {"server_name": server_config or tools_list}
+                                  Example: {
+                                      "whatsapp": [send_whatsapp_tool],
+                                      "github": {"url": "...", "headers": {...}}
+                                  }
         """
         self.api_key = os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
@@ -26,46 +35,68 @@ class ClaudeSDK:
 
         self.system_prompt = system_prompt or os.getenv(
             "AGENT_SYSTEM_PROMPT",
-            "You are a helpful WhatsApp assistant. Keep responses concise and friendly."
+            "You are a helpful WhatsApp assistant with access to GitHub. Keep responses concise and friendly."
         )
 
         self.model = "claude-3-5-sonnet-20241022"
-        self.tools = tools or []
+        self.available_mcp_servers = available_mcp_servers or {}
         self.client = None
-        self.mcp_server = None
 
         print(f"Claude SDK initialized with model: {self.model}")
-        print(f"Tools to register: {len(self.tools)}")
+        print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
 
     async def initialize_client(self):
-        """Initialize the async Claude SDK client"""
+        """Initialize the async Claude SDK client with available MCP servers"""
         if not self.client:
-            # Create MCP server if tools are provided
+            # Build MCP servers dict and allowed tools list
+            mcp_servers = {}
+            allowed_tools = []
+
+            # Process each available MCP server
+            for server_name, server_config in self.available_mcp_servers.items():
+                # Check if it's a list of tools (needs SDK MCP server wrapper)
+                if isinstance(server_config, list):
+                    # This is a list of @tool decorated functions
+                    # Create an SDK MCP server for them
+                    mcp_server = create_sdk_mcp_server(
+                        name=server_name,
+                        version="1.0.0",
+                        tools=server_config
+                    )
+                    mcp_servers[server_name] = mcp_server
+
+                    # Add individual tools to allowed list
+                    for tool_func in server_config:
+                        tool_name = getattr(tool_func, 'name', 'unknown')
+                        allowed_tools.append(f"mcp__{server_name}__{tool_name}")
+
+                    print(f"✓ Registered {server_name} MCP with {len(server_config)} tools")
+
+                else:
+                    # This is a server config dict (e.g., HTTP-based like GitHub)
+                    mcp_servers[server_name] = server_config
+
+                    # Allow all tools from this server using wildcard
+                    allowed_tools.append(f"mcp__{server_name}__*")
+
+                    print(f"✓ Registered {server_name} MCP server (HTTP)")
+
+            # Create options with all MCP servers
             options = None
-            if self.tools:
-                self.mcp_server = create_sdk_mcp_server(
-                    name="whatsapp_tools",
-                    version="1.0.0",
-                    tools=self.tools
-                )
-
-                # Build allowed tools list (format: mcp__servername__toolname)
-                allowed_tools = []
-                for tool_func in self.tools:
-                    # SdkMcpTool objects have a .name attribute
-                    tool_name = getattr(tool_func, 'name', 'unknown')
-                    allowed_tools.append(f"mcp__whatsapp_tools__{tool_name}")
-
+            if mcp_servers:
                 options = ClaudeAgentOptions(
-                    mcp_servers={"whatsapp_tools": self.mcp_server},
-                    allowed_tools=allowed_tools
+                    mcp_servers=mcp_servers,
+                    allowed_tools=allowed_tools,
+                    permission_mode='bypassPermissions'  # Auto-approve all tool usage
                 )
-                print(f"Created MCP server with {len(self.tools)} tools: {allowed_tools}")
+                print(f"Total MCP servers: {len(mcp_servers)}")
+                print(f"Allowed tools: {allowed_tools}")
+                print(f"Permission mode: bypassPermissions")
 
             # Initialize client with options
             self.client = ClaudeSDKClient(options=options)
             await self.client.__aenter__()
-            print("Claude SDK client initialized")
+            print("✅ Claude SDK client initialized")
 
     async def send_message(
         self,

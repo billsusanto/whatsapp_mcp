@@ -1,13 +1,10 @@
-# WhatsApp Claude Agent SDK
+# 🤖 WhatsApp AI Agent with Claude SDK
 
-A hybrid TypeScript/Python project that enables AI-powered WhatsApp messaging through two distinct interfaces:
-
-1. **WhatsApp Webhook** - Receive messages from WhatsApp users and respond automatically with Claude AI
-2. **MCP Server** - Expose WhatsApp messaging capabilities to Claude Desktop as a tool
+An intelligent WhatsApp bot powered by Claude AI that provides automated, context-aware responses to WhatsApp users. Built with Python, Claude Agent SDK, FastAPI, and deployed on Render.
 
 ---
 
-## Table of Contents
+## 📋 Table of Contents
 
 1. [What This Project Does](#what-this-project-does)
 2. [Architecture Overview](#architecture-overview)
@@ -15,35 +12,40 @@ A hybrid TypeScript/Python project that enables AI-powered WhatsApp messaging th
 4. [Project Structure](#project-structure)
 5. [How It Works](#how-it-works)
 6. [Setup Instructions](#setup-instructions)
-7. [Implementation Guide](#implementation-guide)
-8. [Deployment](#deployment)
-9. [Environment Variables](#environment-variables)
+7. [Deployment to Render](#deployment-to-render)
+8. [Environment Variables](#environment-variables)
+9. [Testing](#testing)
 10. [Resources](#resources)
 
 ---
 
-## What This Project Does
+## 🎯 What This Project Does
 
-This project creates a bridge between WhatsApp Business API and Claude AI in two ways:
+This project creates an **AI-powered WhatsApp bot** that automatically responds to user messages using Claude AI:
 
-### Use Case 1: AI-Powered WhatsApp Bot
-Users send messages to your WhatsApp Business number → Your server processes with Claude → Automated AI responses sent back
+### Use Case: Intelligent WhatsApp Assistant
 
-**Example:**
-- User: "What's the weather today?"
-- Bot (Claude): "I'd be happy to help! However, I'll need to know your location to provide weather information..."
+Users send messages to your WhatsApp Business number → Your server processes them with Claude → AI responses sent back automatically with context awareness
 
-### Use Case 2: WhatsApp Tool for Claude Desktop
-Claude Desktop users can send WhatsApp messages directly through Claude's interface using MCP (Model Context Protocol)
+**Example Conversation:**
+```
+User: "What's the weather like?"
+Bot (Claude): "I'd be happy to help! However, I'll need to know your location to provide weather information..."
 
-**Example:**
-- You (in Claude Desktop): "Send a WhatsApp message to +1234567890 saying hello"
-- Claude: *Uses WhatsApp MCP tool to send message*
-- Confirmation: "Message sent successfully!"
+User: "Can you help me with Python?"
+Bot (Claude): "Absolutely! I can help with Python programming. What specific aspect would you like assistance with?"
+```
+
+### Key Features:
+- ✅ **Multi-user support** - One agent instance per phone number
+- ✅ **Context-aware** - 30-minute conversation sessions with 20-message history
+- ✅ **Tool integration** - Claude can use WhatsApp MCP tools to send messages
+- ✅ **Async processing** - Non-blocking webhook responses
+- ✅ **Production-ready** - Deployed on Render with Docker
 
 ---
 
-## Architecture Overview
+## 🏗️ Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -55,18 +57,45 @@ Claude Desktop users can send WhatsApp messages directly through Claude's interf
 │                              │                                  │
 │                              │ POST webhook                     │
 │                              ▼                                  │
-│         ┌───────────────────────────────────────┐              │
-│         │   Vercel (Next.js Serverless)         │              │
-│         │   ─────────────────────────────────   │              │
-│         │   src/app/api/webhook/route.ts        │              │
-│         │   • GET: Webhook verification         │              │
-│         │   • POST: Process incoming messages   │              │
-│         │   • Use Claude Agent SDK              │              │
-│         │   • Generate AI responses             │              │
-│         │   • Send via WhatsApp API             │              │
-│         └───────────────────────────────────────┘              │
+│         ┌────────────────────────────────────────────┐         │
+│         │         Render (Docker Container)          │         │
+│         │  ─────────────────────────────────────────  │         │
+│         │                                             │         │
+│         │  ┌──────────────────────────────────────┐  │         │
+│         │  │   FastAPI Service (main.py)          │  │         │
+│         │  │   • Webhook verification (GET)       │  │         │
+│         │  │   • Message processing (POST)        │  │         │
+│         │  │   • Health check endpoint            │  │         │
+│         │  └──────────────────────────────────────┘  │         │
+│         │                    │                        │         │
+│         │                    ▼                        │         │
+│         │  ┌──────────────────────────────────────┐  │         │
+│         │  │   Agent Manager                      │  │         │
+│         │  │   • One agent per phone number       │  │         │
+│         │  │   • Agent spawning & routing         │  │         │
+│         │  │   • Session management               │  │         │
+│         │  └──────────────────────────────────────┘  │         │
+│         │           │              │                  │         │
+│         │           ▼              ▼                  │         │
+│         │  ┌──────────────┐  ┌──────────────┐       │         │
+│         │  │   Agent 1    │  │   Agent 2    │  ...  │         │
+│         │  │              │  │              │       │         │
+│         │  │ Claude SDK   │  │ Claude SDK   │       │         │
+│         │  │ with MCP     │  │ with MCP     │       │         │
+│         │  │ tools        │  │ tools        │       │         │
+│         │  └──────────────┘  └──────────────┘       │         │
+│         │           │              │                  │         │
+│         │           └──────┬───────┘                  │         │
+│         │                  ▼                          │         │
+│         │  ┌──────────────────────────────────────┐  │         │
+│         │  │   WhatsApp MCP Tool                  │  │         │
+│         │  │   • send_whatsapp(to, text)          │  │         │
+│         │  │   • Uses WhatsApp Business API       │  │         │
+│         │  └──────────────────────────────────────┘  │         │
+│         │                                             │         │
+│         └─────────────────────────────────────────────┘         │
 │                              │                                  │
-│                              │ Response                         │
+│                              │ Send response                    │
 │                              ▼                                  │
 │                    WhatsApp Business API                        │
 │                              │                                  │
@@ -74,179 +103,150 @@ Claude Desktop users can send WhatsApp messages directly through Claude's interf
 │                         WhatsApp User                           │
 │                      (Receives AI response)                     │
 └─────────────────────────────────────────────────────────────────┘
-
-
-┌─────────────────────────────────────────────────────────────────┐
-│                     Claude Desktop User                         │
-│                              │                                  │
-│                              │ "Send WhatsApp to..."            │
-│                              ▼                                  │
-│         ┌───────────────────────────────────────┐              │
-│         │   Render (Python MCP Server)          │              │
-│         │   ─────────────────────────────────   │              │
-│         │   src/python/mcp/server.py            │              │
-│         │   • MCP Server with SSE transport     │              │
-│         │   • Expose WhatsApp tools:            │              │
-│         │     - send_message(to, text)          │              │
-│         │     - get_conversation(phone)         │              │
-│         │   • Uses Python WhatsApp client       │              │
-│         └───────────────────────────────────────┘              │
-│                              │                                  │
-│                              │ API call                         │
-│                              ▼                                  │
-│                    WhatsApp Business API                        │
-│                              │                                  │
-│                              ▼                                  │
-│                         WhatsApp User                           │
-│                      (Receives message)                         │
-└─────────────────────────────────────────────────────────────────┘
 ```
+
+### Architecture Highlights:
+
+1. **Single Render Service** - One Docker container runs everything
+2. **Agent Manager Pattern** - Spawns one agent per phone number
+3. **Claude Agent SDK** - Uses official Python SDK with tool support
+4. **MCP Tools** - WhatsApp sending capabilities integrated as tools
+5. **Session Management** - 30-minute TTL, 20-message history per user
 
 ---
 
-## Technology Stack
+## 🛠️ Technology Stack
 
-### Next.js Webhook (TypeScript)
-- **Framework:** Next.js 15.5+ (App Router)
-- **Runtime:** Node.js serverless functions on Vercel
-- **AI SDK:** `@anthropic-ai/claude-agent-sdk` - Agent framework with tool use
-- **Docker:** Multi-stage builds with Node 20 Alpine
-- **Purpose:** Handle WhatsApp webhooks, process messages, respond with AI
+### Backend (Python)
+- **Framework:** FastAPI (REST API with async support)
+- **AI SDK:** `claude-agent-sdk` - Official Python SDK for Claude agents
+- **MCP:** `mcp>=1.18.0` - Model Context Protocol for tool integration
+- **WhatsApp:** WhatsApp Business Cloud API (Graph API v18.0)
+- **Server:** Uvicorn (ASGI server)
+- **Python:** 3.11+
 
-### MCP Server (Python)
-- **Language:** Python 3.11+
-- **AI SDK:** `claude-agent-sdk` - Python agent framework
-- **MCP:** `mcp` - Model Context Protocol SDK
-- **Web Server:** `uvicorn` + `starlette` - ASGI server for SSE transport
-- **Docker:** Python 3.11 slim with optimized layers
-- **Purpose:** Expose WhatsApp as a tool for Claude Desktop via MCP
+### Infrastructure
+- **Deployment:** Render (Docker container)
+- **Containerization:** Docker with Node.js 20 + Python 3.11
+- **Runtime:** Claude Code CLI (installed via npm in container)
 
 ### External APIs
-- **WhatsApp Business Cloud API** - Send/receive messages
 - **Anthropic Claude API** - AI agent capabilities
-
-### Containerization
-- **Docker:** Both services containerized for consistency
-- **docker-compose:** Local development orchestration
-- **Production:** Vercel (Next.js) + Render (Python) with Docker support
+- **WhatsApp Business Cloud API** - Send/receive messages
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
-monorepo/
+whatsapp_mcp/
 ├── src/
-│   ├── app/                           # Next.js App Router
-│   │   ├── api/
-│   │   │   └── webhook/
-│   │   │       └── route.ts           # 🔷 WhatsApp webhook handler
-│   │   ├── layout.tsx
-│   │   ├── page.tsx
-│   │   └── globals.css
-│   │
-│   └── python/                        # 🐍 Python MCP Server
-│       ├── whatsapp/
+│   └── python/                        # 🐍 Python backend
+│       ├── main.py                    # 🚀 FastAPI entry point
+│       │
+│       ├── agents/                    # Agent system
 │       │   ├── __init__.py
-│       │   ├── client.py              # WhatsApp Business API client
+│       │   ├── manager.py             # Agent manager (one per phone)
+│       │   ├── agent.py               # Individual agent instance
+│       │   └── session.py             # Session management (30min TTL)
+│       │
+│       ├── sdk/                       # Claude SDK wrapper
+│       │   ├── __init__.py
+│       │   └── claude_sdk.py          # SDK client with MCP tools
+│       │
+│       ├── whatsapp/                  # WhatsApp integration
+│       │   ├── __init__.py
+│       │   ├── client.py              # WhatsApp API client
 │       │   └── parser.py              # Webhook payload parser
 │       │
-│       ├── sdk/
-│       │   ├── __init__.py
-│       │   └── claude_sdk.py          # Claude Agent SDK wrapper
-│       │
-│       ├── agents/
-│       │   ├── __init__.py
-│       │   ├── agent.py               # Individual agent instance
-│       │   ├── manager.py             # Multi-agent management
-│       │   └── session.py             # Conversation session tracking
-│       │
-│       ├── mcp/
-│       │   ├── __init__.py
-│       │   └── server.py              # 🔌 MCP server entry point
-│       │
-│       └── utils/
+│       └── utils/                     # Utilities
 │           ├── __init__.py
-│           ├── config.py              # Environment configuration
-│           └── logger.py              # Logging utilities
+│           ├── config.py              # Environment config
+│           └── logger.py              # Logging
 │
-├── public/                            # Static assets
-├── node_modules/                      # Node dependencies (gitignored)
+├── test_claude_sdk.py                 # Local SDK testing script
+├── test_agent.py                      # Agent integration tests
 │
-├── package.json                       # Node dependencies
 ├── requirements.txt                   # Python dependencies
-│
-├── Dockerfile.vercel                  # 🐳 Docker for Next.js/Agent Server
-├── Dockerfile.render                  # 🐳 Docker for Python MCP Server
-├── docker-compose.yml                 # 🐳 Local development orchestration
+├── Dockerfile.render                  # 🐳 Docker for Render deployment
+├── render.yaml                        # Render deployment config
 ├── .dockerignore                      # Docker build exclusions
 │
-├── vercel.json                        # Vercel deployment config
-├── render.yaml                        # Render deployment config
 ├── .env                               # Environment variables (gitignored)
 ├── .gitignore
 │
-├── next.config.ts
-├── tsconfig.json
-├── tailwind.config.ts
-└── README.md                          # This file
+├── README.md                          # This file
+│
+└── docs/                              # Documentation
+    ├── ARCHITECTURE.md                # Architecture deep dive
+    ├── IMPLEMENTATION_COMPLETE.md     # Implementation summary
+    ├── CLAUDE_SDK_TEST.md             # SDK test results
+    └── PRE_DEPLOYMENT_CHECKLIST.md    # Deployment verification
 ```
 
 ---
 
-## How It Works
+## 🔄 How It Works
 
-### Workflow 1: WhatsApp User → AI Response
+### Message Flow:
 
-1. **User sends message** to your WhatsApp Business number
-2. **WhatsApp API** sends webhook POST to `https://your-app.vercel.app/api/webhook`
-3. **Next.js webhook handler** (`src/app/api/webhook/route.ts`):
-   - Parses webhook payload
-   - Extracts phone number and message text
-   - Calls Claude Agent SDK with message
-   - Receives AI-generated response
-4. **Webhook handler sends response** via WhatsApp Business API
+1. **User sends message** to WhatsApp Business number
+
+2. **WhatsApp API** → POST webhook to Render: `/webhook`
+
+3. **FastAPI webhook handler** (`main.py`):
+   - Validates webhook (GET for verification)
+   - Parses message payload (POST)
+   - Extracts phone number and text
+   - Returns 200 OK immediately (WhatsApp requires fast response)
+
+4. **Async processing** (background task):
+   - Agent Manager gets/creates agent for phone number
+   - Agent processes message with Claude SDK
+   - Claude generates response (may use tools)
+   - Response sent back via WhatsApp API
+
 5. **User receives AI response** in WhatsApp
 
-### Workflow 2: Claude Desktop → WhatsApp Message
+### Agent System:
 
-1. **User asks Claude Desktop** to send a WhatsApp message
-2. **Claude identifies** it needs the WhatsApp tool
-3. **Claude connects** to MCP server at `https://whatsapp-mcp.onrender.com/sse`
-4. **MCP server** exposes tools:
-   - `send_message(to, text)`
-   - `get_conversation(phone_number)`
-5. **Claude calls** `send_message` tool
-6. **MCP server** uses Python WhatsApp client to send message
-7. **Message delivered** via WhatsApp Business API
-8. **Claude confirms** to user: "Message sent!"
+- **One agent per phone number** - Isolated conversations
+- **Session management** - 30-minute TTL, auto-cleanup
+- **Conversation history** - Last 20 messages per user
+- **MCP tool integration** - `send_whatsapp` tool available to Claude
+
+### Claude Agent SDK:
+
+The project uses the official Claude Agent SDK which:
+- Requires **Claude Code CLI** to be installed
+- Runs agents with full tool support
+- Manages conversation context automatically
+- Supports MCP tools via `@tool` decorator
 
 ---
 
-## Setup Instructions
+## 🚀 Setup Instructions
 
 ### Prerequisites
 
-- **Node.js** 18+ and npm
 - **Python** 3.11+
+- **Docker** (for local testing and deployment)
 - **WhatsApp Business Account** with API access
 - **Anthropic API Key** for Claude
-- **Vercel Account** (free tier works)
 - **Render Account** (free tier works)
 
 ### 1. Clone and Install Dependencies
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
-cd monorepo
+git clone https://github.com/billsusanto/whatsapp_mcp.git
+cd whatsapp_mcp
 
-# Install Node.js dependencies
-npm install
-
-# Install Python dependencies
+# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install Python dependencies
 pip install -r requirements.txt
 ```
 
@@ -259,387 +259,335 @@ Create a `.env` file in the root directory:
 ANTHROPIC_API_KEY=sk-ant-api03-...
 
 # WhatsApp Business API
-WHATSAPP_ACCESS_TOKEN=EAHUle7WZCIeQBPvvh2w...
-WHATSAPP_PHONE_NUMBER_ID=855776727613754
-WHATSAPP_WEBHOOK_VERIFY_TOKEN=your_secure_token_123
+WHATSAPP_ACCESS_TOKEN=EAA...
+WHATSAPP_PHONE_NUMBER_ID=123456789012345
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=your_secure_random_token
 
-# Agent Configuration
+# Optional: Custom system prompt
 AGENT_SYSTEM_PROMPT="You are a helpful WhatsApp assistant..."
 ```
 
 **Where to get these:**
 - **ANTHROPIC_API_KEY:** [Anthropic Console](https://console.anthropic.com/)
 - **WhatsApp credentials:** [Meta Business Suite](https://business.facebook.com/) → WhatsApp → API Setup
-- **WHATSAPP_WEBHOOK_VERIFY_TOKEN:** Create your own secure random string
+- **WHATSAPP_WEBHOOK_VERIFY_TOKEN:** Create your own secure random string (e.g., `my_secret_token_12345`)
 
 ### 3. Test Locally
 
-#### Option A: With Docker (Recommended)
+#### Test the Claude SDK (without Docker):
 
 ```bash
-# Build and start both services
-docker-compose up --build
+# Requires Claude Code CLI to be installed locally
+python test_claude_sdk.py
 
-# Services will be available at:
-# - Webhook: http://localhost:3000/api/webhook
-# - MCP Server: http://localhost:10000
-
-# Stop services
-docker-compose down
+# Interactive mode
+python test_claude_sdk.py --interactive
 ```
 
-#### Option B: Without Docker
+#### Test with Docker (Recommended):
 
-**Next.js Webhook:**
 ```bash
-npm run dev
-# Open http://localhost:3000
+# Build Docker image
+docker build -f Dockerfile.render -t whatsapp-mcp .
 
-# Test webhook verification
-curl "http://localhost:3000/api/webhook?hub.mode=subscribe&hub.verify_token=your_secure_token_123&hub.challenge=test123"
-# Should return: test123
+# Run container
+docker run -p 8000:8000 --env-file .env whatsapp-mcp
+
+# Service available at http://localhost:8000
 ```
 
-**Python MCP Server:**
-```bash
-source venv/bin/activate
-python src/python/mcp/server.py
-# MCP server starts on port 8080
-```
-
-### 4. Test with ngrok (for WhatsApp webhook)
+#### Test webhook locally with ngrok:
 
 ```bash
 # Install ngrok: https://ngrok.com/
-ngrok http 3000
+ngrok http 8000
 
-# Copy the HTTPS URL (e.g., https://abc123.ngrok.io)
-# Add to WhatsApp Business API webhook configuration:
-# URL: https://abc123.ngrok.io/api/webhook
-# Verify Token: your_secure_token_123
+# Copy HTTPS URL (e.g., https://abc123.ngrok-free.app)
+# Configure in WhatsApp Business webhook settings
 ```
 
 ---
 
-## Implementation Guide
+## 🚢 Deployment to Render
 
-All files contain detailed TODO comments and pseudocode. Implement in this order:
+### Deployment Steps:
 
-### Priority 1: Next.js Webhook (TypeScript)
+#### 1. Prepare Repository
 
-**File:** `src/app/api/webhook/route.ts`
+Make sure your code is pushed to GitHub:
 
-**What to implement:**
-
-1. **GET handler** (Webhook verification):
-   ```typescript
-   export async function GET(request: NextRequest) {
-     const searchParams = request.nextUrl.searchParams;
-     const mode = searchParams.get('hub.mode');
-     const token = searchParams.get('hub.verify_token');
-     const challenge = searchParams.get('hub.challenge');
-
-     if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-       return new NextResponse(challenge, { status: 200 });
-     }
-     return new NextResponse('Forbidden', { status: 403 });
-   }
-   ```
-
-2. **POST handler** (Message processing):
-   ```typescript
-   import { ClaudeAgent } from '@anthropic-ai/claude-agent-sdk';
-
-   export async function POST(request: NextRequest) {
-     const body = await request.json();
-
-     // Parse WhatsApp webhook
-     // Extract phone number and message text
-     // Call Claude Agent SDK
-     // Send response via WhatsApp API
-
-     return NextResponse.json({ status: 'ok' });
-   }
-   ```
-
-**Resources:**
-- [WhatsApp Webhook Docs](https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples)
-- [Next.js Route Handlers](https://nextjs.org/docs/app/building-your-application/routing/route-handlers)
-- [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk/migration-guide)
-
-### Priority 2: Python Utilities (for MCP)
-
-**Files to implement:**
-1. `src/python/utils/config.py` - Environment variable loading
-2. `src/python/whatsapp/client.py` - WhatsApp API client
-3. `src/python/whatsapp/parser.py` - Webhook parser (optional for MCP)
-
-**Example: WhatsApp Client**
-```python
-import os
-import requests
-
-class WhatsAppClient:
-    def __init__(self):
-        self.access_token = os.getenv('WHATSAPP_ACCESS_TOKEN')
-        self.phone_number_id = os.getenv('WHATSAPP_PHONE_NUMBER_ID')
-        self.api_url = f"https://graph.facebook.com/v18.0/{self.phone_number_id}/messages"
-
-    def send_message(self, to: str, text: str):
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "text",
-            "text": {"body": text}
-        }
-        response = requests.post(self.api_url, headers=headers, json=payload)
-        return response.json()
-```
-
-### Priority 3: Python MCP Server
-
-**File:** `src/python/mcp/server.py`
-
-**What to implement:**
-- MCP server with SSE transport
-- Tools: `send_message`, `get_conversation`
-- Health check endpoint for Render
-
-**Resources:**
-- [MCP Python SDK Guide](https://modelcontextprotocol.io/quickstart/server)
-- [MCP Tools Documentation](https://modelcontextprotocol.io/docs/concepts/tools)
-
----
-
-## Deployment
-
-### Deploy Next.js to Vercel (with Docker)
-
-**Option 1: Automatic Deployment (Vercel's Native Build)**
 ```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Login
-vercel login
-
-# Deploy
-vercel --prod
+git add .
+git commit -m "Ready for Render deployment"
+git push origin main
 ```
 
-**Option 2: Docker Deployment (Using Dockerfile.vercel)**
-1. Push code to GitHub
-2. In Vercel dashboard → Project Settings → Build & Development Settings
-3. Set **Build Command**: `docker build -f Dockerfile.vercel -t next-app .`
-4. Vercel will use your Dockerfile for deployment
+#### 2. Create Render Service
 
-**Set environment variables in Vercel dashboard:**
-- Go to your project → Settings → Environment Variables
-- Add all variables from `.env`
+**Option A: Using render.yaml (Recommended)**
 
-**Configure WhatsApp webhook:**
-- Webhook URL: `https://your-app.vercel.app/api/webhook`
-- Verify Token: Your `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+1. Go to [render.com](https://render.com) and sign up
+2. Click "New" → "Blueprint"
+3. Connect your GitHub repository
+4. Select branch: `main` (or `python-only-branch`)
+5. Render will detect `render.yaml` and configure automatically
+6. Click "Apply"
 
-### Deploy MCP Server to Render (with Docker)
+**Option B: Manual Setup**
 
-**Using Dockerfile.render:**
+1. Click "New" → "Web Service"
+2. Connect GitHub repository
+3. Configure:
+   - **Language:** Docker
+   - **Branch:** main
+   - **Dockerfile Path:** `./Dockerfile.render`
+   - **Region:** Oregon (or closest to you)
+4. Click "Create Web Service"
 
-1. Push code to GitHub
-2. Go to [render.com](https://render.com) and sign up
-3. Click "New" → "Web Service"
-4. Connect your GitHub repository
-5. **Configure service:**
-   - **Environment:** Docker
-   - **Dockerfile Path:** `Dockerfile.render`
-   - **Region:** Choose closest to your users
-6. Set environment variables in Render dashboard:
-   - `ANTHROPIC_API_KEY`
-   - `WHATSAPP_ACCESS_TOKEN`
-   - `WHATSAPP_PHONE_NUMBER_ID`
-7. Deploy!
+#### 3. Set Environment Variables
 
-**Alternative: Using render.yaml Blueprint:**
-- Render auto-detects `render.yaml`
-- Modify `render.yaml` to specify `dockerfilePath: Dockerfile.render`
+In Render dashboard → Your Service → Environment:
 
-**Your MCP server URL:** `https://whatsapp-mcp-server.onrender.com/sse`
+| Variable | Value |
+|----------|-------|
+| `ANTHROPIC_API_KEY` | Your Claude API key |
+| `WHATSAPP_ACCESS_TOKEN` | Your WhatsApp token |
+| `WHATSAPP_PHONE_NUMBER_ID` | Your phone number ID |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Your verify token |
 
-**Connect to Claude Desktop:**
+Click "Save Changes" - Render will redeploy.
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) or equivalent:
+#### 4. Configure WhatsApp Webhook
 
+Once deployed (service URL: `https://whatsapp-mcp-XXXX.onrender.com`):
+
+1. Go to [Meta Business Suite](https://business.facebook.com/) → WhatsApp → Configuration
+2. Click "Edit" on Webhook
+3. Set **Callback URL**: `https://whatsapp-mcp-XXXX.onrender.com/webhook`
+4. Set **Verify Token**: Same value as `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+5. Click "Verify and Save"
+6. Subscribe to "messages" field
+7. Test by sending a message to your WhatsApp Business number!
+
+### Expected Build Time:
+
+- **First build:** 8-12 minutes
+  - Installing Node.js: ~2 min
+  - Installing Claude Code CLI: ~3-5 min
+  - Installing Python packages: ~2-3 min
+- **Subsequent builds:** 3-5 minutes (with caching)
+
+### Service Health Check:
+
+Check your service is running:
+```bash
+curl https://your-service.onrender.com/health
+```
+
+Expected response:
 ```json
 {
-  "mcpServers": {
-    "whatsapp": {
-      "url": "https://whatsapp-mcp-server.onrender.com/sse",
-      "transport": "sse"
-    }
-  }
+  "status": "healthy",
+  "service": "whatsapp-mcp",
+  "api_key_configured": true,
+  "whatsapp_configured": true,
+  "active_agents": 0
 }
 ```
 
-### Local Docker Testing Before Deployment
-
-```bash
-# Test Vercel Dockerfile locally
-docker build -f Dockerfile.vercel -t whatsapp-webhook .
-docker run -p 3000:3000 --env-file .env whatsapp-webhook
-
-# Test Render Dockerfile locally
-docker build -f Dockerfile.render -t whatsapp-mcp .
-docker run -p 10000:10000 --env-file .env whatsapp-mcp
-
-# Test both with docker-compose
-docker-compose up --build
-```
-
 ---
 
-## Environment Variables
+## 🔐 Environment Variables
 
-### Required for Both Services
+### Required Variables
 
 | Variable | Description | Where to Get |
 |----------|-------------|--------------|
 | `ANTHROPIC_API_KEY` | Claude API key | [console.anthropic.com](https://console.anthropic.com/) |
 | `WHATSAPP_ACCESS_TOKEN` | WhatsApp API token | [Meta Business Suite](https://business.facebook.com/) |
 | `WHATSAPP_PHONE_NUMBER_ID` | Your WhatsApp phone number ID | Meta Business Suite → WhatsApp API |
-| `AGENT_SYSTEM_PROMPT` | Custom system prompt for Claude | Your custom prompt |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Webhook verification token | Create your own random string |
 
-### Required for Webhook Only
-
-| Variable | Description |
-|----------|-------------|
-| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Webhook verification token (create your own) |
-
-### Optional
+### Optional Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | Server port (Render sets this) | 8080 |
+| `AGENT_SYSTEM_PROMPT` | Custom system prompt for Claude | "You are a helpful WhatsApp assistant..." |
+| `PORT` | Server port (Render sets this) | 8000 |
 
 ---
 
-## Key Features
+## 🧪 Testing
 
-### Claude Agent SDK Benefits
+### Local Testing (Without WhatsApp)
 
-- **Tool Use:** Built-in support for custom tools and MCP
-- **State Management:** Better conversation history handling
-- **Agent-Focused:** Designed specifically for autonomous agents
-- **Preset Configurations:** Includes pre-built agent templates
+Test the Claude SDK independently:
 
-### WhatsApp Integration
+```bash
+# Automated tests (4 test scenarios)
+python test_claude_sdk.py
 
-- **Business API:** Cloud-based, scalable
-- **Webhook Support:** Real-time message delivery
-- **Rich Messages:** Supports text, images, videos, documents
+# Interactive chat mode
+python test_claude_sdk.py --interactive
+```
 
-### MCP Integration
+**Test results documented in:** `CLAUDE_SDK_TEST.md`
 
-- **SSE Transport:** Real-time streaming for Claude Desktop
-- **Tool Exposure:** WhatsApp capabilities as Claude tools
-- **Extensible:** Easy to add more tools
+### Integration Testing
+
+Test the full agent system:
+
+```bash
+python test_agent.py
+```
+
+This tests:
+- ✅ Agent Manager initialization
+- ✅ Agent creation per phone number
+- ✅ Message processing with Claude SDK
+- ✅ MCP tools registration
+
+### Testing with WhatsApp
+
+1. Deploy to Render
+2. Configure WhatsApp webhook
+3. Send a message to your WhatsApp Business number
+4. Check Render logs for processing
+5. Verify response received in WhatsApp
+
+**Tip:** Check Render logs in real-time:
+```
+Render Dashboard → Your Service → Logs
+```
 
 ---
 
-## Resources
+## 📚 Key Features
+
+### Multi-User Support
+- One agent instance per phone number
+- Isolated conversation contexts
+- Automatic agent spawning
+
+### Session Management
+- 30-minute TTL per conversation
+- 20-message history limit
+- Automatic cleanup of expired sessions
+
+### Tool Integration
+- WhatsApp MCP tool: `send_whatsapp(to, text)`
+- Claude can autonomously send messages
+- Extensible for additional tools
+
+### Error Handling
+- Graceful error messages to users
+- Comprehensive logging
+- Webhook validation
+
+### Production Ready
+- Docker containerization
+- Health check endpoints
+- Non-blocking async processing
+- Security (non-root user in Docker)
+
+---
+
+## 📖 Resources
 
 ### Documentation
 
-- [WhatsApp Cloud API Documentation](https://developers.facebook.com/docs/whatsapp/cloud-api)
-- [Anthropic Claude API Documentation](https://docs.anthropic.com/)
-- [Claude Agent SDK Migration Guide](https://docs.claude.com/en/docs/claude-code/sdk/migration-guide)
-- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Vercel Deployment](https://vercel.com/docs)
-- [Render Deployment](https://render.com/docs)
+- [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api)
+- [Anthropic Claude API](https://docs.anthropic.com/)
+- [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [Render Documentation](https://render.com/docs)
 
 ### API References
 
 - [WhatsApp Send Messages](https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages)
 - [WhatsApp Webhooks](https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples)
 - [Anthropic Messages API](https://docs.anthropic.com/en/api/messages)
-- [MCP Server Implementation](https://modelcontextprotocol.io/quickstart/server)
 
 ### Tools & Libraries
 
 - [Python Requests](https://requests.readthedocs.io/)
-- [Next.js API Routes](https://nextjs.org/docs/app/building-your-application/routing/route-handlers)
-- [Uvicorn ASGI Server](https://www.uvicorn.org/)
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Uvicorn](https://www.uvicorn.org/)
+- [Docker](https://docs.docker.com/)
 
 ---
 
-## Development Commands
+## 🛠️ Development
 
-### Docker Commands
+### Running Locally
 
 ```bash
-# Start all services with Docker Compose
-docker-compose up --build
+# Without Docker
+source venv/bin/activate
+python src/python/main.py
 
-# Start in detached mode
-docker-compose up -d
-
-# Stop all services
-docker-compose down
-
-# View logs
-docker-compose logs -f
-
-# Rebuild specific service
-docker-compose up --build webhook
-docker-compose up --build mcp-server
-
-# Clean up (remove volumes)
-docker-compose down -v
+# With Docker
+docker build -f Dockerfile.render -t whatsapp-mcp .
+docker run -p 8000:8000 --env-file .env whatsapp-mcp
 ```
 
-### Local Development (Without Docker)
+### Project Commands
 
 ```bash
-# Next.js development server
-npm run dev
-
-# Next.js production build
-npm run build
-npm start
-
-# Python MCP server (local)
-source venv/bin/activate
-python src/python/mcp/server.py
-
 # Install dependencies
-npm install
 pip install -r requirements.txt
 
-# Lint TypeScript
-npm run lint
+# Run tests
+python test_claude_sdk.py
+python test_agent.py
 
-# Test (add pytest later)
-pytest
+# Format code (if using black)
+black src/python/
+
+# Type checking (if using mypy)
+mypy src/python/
 ```
 
 ---
 
-## Project Philosophy
+## 🏛️ Architecture Files
 
-**Simple, Focused, Maintainable**
+For detailed architecture documentation:
 
-- **One language per platform:** TypeScript for Vercel, Python for Render
-- **No Flask:** Next.js API Routes handle webhooks natively
-- **Claude Agent SDK:** Purpose-built for AI agents, not generic API clients
-- **MCP Protocol:** Standard interface for Claude Desktop integration
-- **Serverless-first:** Vercel functions scale automatically
-- **Dockerized:** Consistent environments from dev to production
-- **Pseudocode everywhere:** All files have detailed TODO comments for learning
+- **ARCHITECTURE.md** - Full system design and module breakdown
+- **IMPLEMENTATION_COMPLETE.md** - Feature implementation summary
+- **CLAUDE_SDK_TEST.md** - SDK testing results and examples
+- **PRE_DEPLOYMENT_CHECKLIST.md** - Deployment verification checklist
 
 ---
 
-**Built with Claude Agent SDK, Next.js, Python, and Docker**
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+---
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 🙏 Acknowledgments
+
+- **Anthropic** - Claude AI and Agent SDK
+- **Meta** - WhatsApp Business API
+- **Render** - Hosting platform
+
+---
+
+**Built with Claude Agent SDK, FastAPI, Python, and Docker**
+
+**Deployment:** Render (https://whatsapp-mcp-p0ti.onrender.com)

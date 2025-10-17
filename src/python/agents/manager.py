@@ -16,18 +16,48 @@ from agents.session import SessionManager
 class AgentManager:
     """Manages multiple agent instances"""
 
-    def __init__(self, mcp_tools: Optional[list] = None):
+    def __init__(self, whatsapp_mcp_tools: Optional[list] = None, enable_github: bool = False):
         """
         Initialize the agent manager
 
         Args:
-            mcp_tools: List of MCP tools to register with each agent
+            whatsapp_mcp_tools: List of WhatsApp MCP tools
+            enable_github: Whether to enable GitHub MCP integration
         """
         self.session_manager = SessionManager()
         self.agents: Dict[str, Agent] = {}
-        self.mcp_tools = mcp_tools or []
 
-        print(f"AgentManager initialized with {len(self.mcp_tools)} MCP tools")
+        # Build available MCP servers dict
+        self.available_mcp_servers = {}
+
+        # 1. Add WhatsApp MCP if tools provided
+        if whatsapp_mcp_tools:
+            self.available_mcp_servers["whatsapp"] = whatsapp_mcp_tools
+            print(f"✅ WhatsApp MCP configured with {len(whatsapp_mcp_tools)} tools")
+
+        # 2. Add GitHub MCP if enabled
+        self.enable_github = enable_github
+        if self.enable_github:
+            try:
+                sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                from github_mcp.server import create_github_mcp_config
+
+                # Create GitHub MCP config and add to available servers
+                github_config = create_github_mcp_config()
+                self.available_mcp_servers["github"] = github_config
+                print("✅ GitHub MCP configured")
+            except ValueError as e:
+                print(f"⚠️  GitHub MCP not available: {e}")
+                print("   Set GITHUB_PERSONAL_ACCESS_TOKEN environment variable to enable")
+                self.enable_github = False
+            except Exception as e:
+                print(f"❌ Failed to configure GitHub MCP: {e}")
+                import traceback
+                traceback.print_exc()
+                self.enable_github = False
+
+        print(f"\nAgentManager initialized")
+        print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
 
     def get_or_create_agent(self, phone_number: str) -> Agent:
         """
@@ -40,14 +70,13 @@ class AgentManager:
             Agent instance for this user
         """
         if phone_number not in self.agents:
-            # Create new agent
+            # Create new agent with all available MCP servers
             agent = Agent(
                 phone_number=phone_number,
                 session_manager=self.session_manager,
-                mcp_tools=self.mcp_tools
+                available_mcp_servers=self.available_mcp_servers
             )
             self.agents[phone_number] = agent
-            print(f"Created new agent for {phone_number}")
 
         return self.agents[phone_number]
 

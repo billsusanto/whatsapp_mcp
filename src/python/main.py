@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 sys.path.append(os.path.dirname(__file__))
 
 from agents.manager import AgentManager
-from whatsapp.client import WhatsAppClient
-from whatsapp.parser import WhatsAppWebhookParser
+from whatsapp_mcp.client import WhatsAppClient
+from whatsapp_mcp.parser import WhatsAppWebhookParser
 
 # Load environment variables
 load_dotenv()
@@ -54,8 +54,12 @@ async def whatsapp_send_tool(args: dict[str, Any]) -> dict[str, Any]:
             "isError": True
         }
 
-# Initialize Agent Manager with MCP tools
-agent_manager = AgentManager(mcp_tools=[whatsapp_send_tool])
+# Initialize Agent Manager with available MCP servers
+enable_github = os.getenv("ENABLE_GITHUB_MCP", "false").lower() == "true"
+agent_manager = AgentManager(
+    whatsapp_mcp_tools=[whatsapp_send_tool],
+    enable_github=enable_github
+)
 
 # Pydantic models for API
 class MessageRequest(BaseModel):
@@ -75,6 +79,8 @@ async def health_check():
         "service": "whatsapp-mcp",
         "api_key_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
         "whatsapp_configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN")),
+        "github_mcp_enabled": agent_manager.enable_github,
+        "github_token_configured": bool(os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")),
         "active_agents": agent_manager.get_active_agents_count()
     }
 
@@ -218,7 +224,8 @@ async def startup_event():
     print("=" * 60)
     print(f"ANTHROPIC_API_KEY configured: {bool(os.getenv('ANTHROPIC_API_KEY'))}")
     print(f"WHATSAPP_ACCESS_TOKEN configured: {bool(os.getenv('WHATSAPP_ACCESS_TOKEN'))}")
-    print(f"MCP Tools registered: {len(agent_manager.mcp_tools)}")
+    print(f"GITHUB_PERSONAL_ACCESS_TOKEN configured: {bool(os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'))}")
+    print(f"\nAvailable MCP servers: {list(agent_manager.available_mcp_servers.keys())}")
     print("=" * 60)
 
 
