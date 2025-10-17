@@ -158,9 +158,16 @@ IMPORTANT:
                 print(f"Permission mode: bypassPermissions")
 
             # Initialize client with options
-            self.client = ClaudeSDKClient(options=options)
-            await self.client.__aenter__()
-            print("✅ Claude SDK client initialized")
+            try:
+                self.client = ClaudeSDKClient(options=options)
+                await self.client.__aenter__()
+                print("✅ Claude SDK client initialized successfully")
+                print(f"   Active MCP servers: {list(mcp_servers.keys())}")
+            except Exception as e:
+                print(f"❌ Error initializing Claude SDK client: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
 
     async def send_message(
         self,
