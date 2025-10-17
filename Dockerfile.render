@@ -1,70 +1,75 @@
 # ============================================
-# Dockerfile for Render Deployment
-# (WhatsApp MCP Server - Python)
+# Dockerfile for Python Agent SDK Service
+# Deployment: Render (Claude Agent SDK for WhatsApp)
 # ============================================
 
-# TODO: Use Python 3.11 slim image for smaller size
-# FROM python:3.11-slim
+FROM python:3.11-slim
 
 # ============================================
 # System Setup
 # ============================================
-# TODO: Set working directory to /app
-# TODO: Install system dependencies if needed (curl, etc.)
-# TODO: Create non-root user for security
+WORKDIR /app
+
+# Install system dependencies and Node.js
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    gnupg \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create non-root user for security
+RUN useradd -m -u 1001 agentuser
 
 # ============================================
 # Python Dependencies
 # ============================================
-# TODO: Copy requirements.txt first (for Docker layer caching)
-# TODO: Upgrade pip: pip install --upgrade pip
-# TODO: Install Python packages: pip install --no-cache-dir -r requirements.txt
-# TODO: This installs: mcp, uvicorn, starlette, claude-agent-sdk, etc.
+# Copy requirements.txt first (for Docker layer caching)
+COPY requirements.txt .
+
+# Upgrade pip and install Python packages
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # ============================================
 # Copy Application Code
 # ============================================
-# TODO: Copy all Python source code
-# TODO: Copy src/python/ directory
-# TODO: Copy .env file (if needed, but prefer env vars from Render dashboard)
+# Copy Python source code
+COPY src/python/ ./src/python/
 
 # ============================================
 # Environment Variables (Set in Render Dashboard)
 # ============================================
-# - ANTHROPIC_API_KEY
-# - WHATSAPP_ACCESS_TOKEN
-# - WHATSAPP_PHONE_NUMBER_ID
-# - PORT (automatically set by Render)
-# - MCP_TRANSPORT=sse
+# - ANTHROPIC_API_KEY (required)
+# - WHATSAPP_ACCESS_TOKEN (optional, for MCP server)
+# - WHATSAPP_PHONE_NUMBER_ID (optional, for MCP server)
+# - PORT (automatically set by Render, defaults to 8000)
 
 # ============================================
 # Expose Port
 # ============================================
-# TODO: Expose the PORT that Render provides (usually 10000)
-# EXPOSE 10000
+EXPOSE 8000
 
 # ============================================
-# Health Check (Optional but Recommended)
+# Health Check
 # ============================================
-# TODO: Add health check endpoint in your MCP server
-# HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-#   CMD curl -f http://localhost:${PORT}/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # ============================================
-# Start MCP Server
+# Switch to non-root user
 # ============================================
-# TODO: Switch to non-root user
-# TODO: CMD to start server with uvicorn and SSE transport
-# CMD ["python", "src/python/mcp/server.py", "--transport", "sse", "--port", "${PORT}"]
-#
-# Alternative using uvicorn directly:
-# CMD ["uvicorn", "src.python.mcp.server:app", "--host", "0.0.0.0", "--port", "${PORT}"]
+RUN chown -R agentuser:agentuser /app
+USER agentuser
 
 # ============================================
-# Notes:
+# Start FastAPI Agent Service
 # ============================================
-# - Render automatically sets $PORT environment variable
-# - MCP uses SSE (Server-Sent Events) transport for communication
-# - This server exposes WhatsApp tools (send_message, get_conversation)
-# - Agents running on Vercel will call this MCP server
-# - Make sure to configure Render's environment variables before deploying
+CMD ["python", "src/python/main.py"]

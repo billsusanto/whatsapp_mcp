@@ -1,13 +1,15 @@
-# Python Dependencies for WhatsApp MCP Project
+# Python Dependencies for WhatsApp Agent Project
 # This project uses:
-# - Next.js (TypeScript) for WhatsApp webhook on Vercel
-# - Python for MCP server on Render
+# - Python for Claude Agent SDK service on Render
 
 # ============================================
 # Core Dependencies
 # ============================================
 
-# Anthropic Claude API
+# Claude Agent SDK (official Python SDK for building agents)
+claude-agent-sdk>=0.1.0
+
+# Anthropic Claude API (for low-level API access)
 anthropic>=0.18.0
 
 # HTTP Requests (for WhatsApp API calls)
@@ -17,15 +19,21 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 
 # ============================================
-# MCP Server Dependencies (Render Deployment)
+# Web Service Dependencies (Render Deployment)
+# ============================================
+
+# FastAPI for REST API
+fastapi>=0.104.0
+
+# ASGI server
+uvicorn[standard]>=0.24.0
+
+# ============================================
+# MCP Server Dependencies
 # ============================================
 
 # Model Context Protocol SDK
-mcp>=0.9.0
-
-# ASGI server for MCP SSE transport
-uvicorn>=0.24.0
-starlette>=0.32.0
+mcp>=1.18.0
 
 # ============================================
 # Optional: Session Management
@@ -40,22 +48,3 @@ starlette>=0.32.0
 
 # pytest (for testing)
 # pytest>=7.4.0
-
-# ============================================
-# INSTALLATION INSTRUCTIONS:
-# ============================================
-#
-# 1. Create virtual environment:
-#    python3 -m venv venv
-#
-# 2. Activate virtual environment:
-#    Mac/Linux:  source venv/bin/activate
-#    Windows:    venv\Scripts\activate
-#
-# 3. Install dependencies:
-#    pip install -r requirements.txt
-#
-# 4. For development (with optional packages):
-#    pip install -r requirements.txt flask gunicorn redis pytest
-#
-# ============================================

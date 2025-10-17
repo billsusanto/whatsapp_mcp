@@ -1,10 +1,10 @@
 """
-WhatsApp Webhook Payload Parser
+WhatsApp Webhook Parser
 
 Parses incoming webhook payloads from WhatsApp Business API
 """
 
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 
 
 class WhatsAppWebhookParser:
@@ -13,59 +13,138 @@ class WhatsAppWebhookParser:
     @staticmethod
     def parse_message(webhook_data: Dict) -> Optional[Dict]:
         """
-        Extract message details from webhook payload
+        Parse a WhatsApp webhook payload and extract message data
 
         Args:
-            webhook_data: The raw webhook POST body
+            webhook_data: The webhook payload from WhatsApp
 
         Returns:
-            Dict with: {
-                "from": sender_phone_number,
-                "message_id": whatsapp_message_id,
-                "text": message_text,
-                "timestamp": message_timestamp,
-                "name": sender_name (if available)
+            Parsed message dict or None if no valid message
+            {
+                "from": str,           # Sender's phone number
+                "message_id": str,     # WhatsApp message ID
+                "timestamp": str,      # Message timestamp
+                "type": str,           # Message type (text, image, etc.)
+                "text": str,           # Message text (if type is text)
+                "media": Dict          # Media info (if type is media)
             }
-            Returns None if not a valid message
-
-        TODO:
-        - Navigate webhook structure: entry[0].changes[0].value.messages[0]
-        - Extract phone number from "from" field
-        - Extract text from text.body or handle other message types
-        - Handle edge cases (no messages, status updates, etc.)
-
-        WEBHOOK STRUCTURE:
-        {
-          "object": "whatsapp_business_account",
-          "entry": [{
-            "changes": [{
-              "value": {
-                "messages": [{
-                  "from": "1234567890",
-                  "id": "wamid.xxx",
-                  "timestamp": "1234567890",
-                  "text": {"body": "Hello"},
-                  "type": "text"
-                }],
-                "contacts": [{
-                  "profile": {"name": "John Doe"}
-                }]
-              }
-            }]
-          }]
-        }
-
-        DOCS: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
         """
-        pass
+        try:
+            # Navigate nested webhook structure
+            entry = webhook_data.get('entry', [])
+            if not entry:
+                return None
+
+            changes = entry[0].get('changes', [])
+            if not changes:
+                return None
+
+            value = changes[0].get('value', {})
+
+            # Check if this is a status update (not a message)
+            if 'statuses' in value:
+                return None  # Ignore status updates
+
+            # Extract messages
+            messages = value.get('messages', [])
+            if not messages:
+                return None
+
+            message = messages[0]
+
+            # Build result dict
+            result = {
+                "from": message.get('from'),
+                "message_id": message.get('id'),
+                "timestamp": message.get('timestamp'),
+                "type": message.get('type', 'text')
+            }
+
+            # Extract content based on message type
+            message_type = message.get('type')
+
+            if message_type == 'text':
+                text_data = message.get('text', {})
+                result["text"] = text_data.get('body', '')
+
+            elif message_type == 'image':
+                image_data = message.get('image', {})
+                result["media"] = {
+                    "id": image_data.get('id'),
+                    "mime_type": image_data.get('mime_type'),
+                    "sha256": image_data.get('sha256'),
+                    "caption": image_data.get('caption', '')
+                }
+
+            elif message_type == 'video':
+                video_data = message.get('video', {})
+                result["media"] = {
+                    "id": video_data.get('id'),
+                    "mime_type": video_data.get('mime_type'),
+                    "sha256": video_data.get('sha256'),
+                    "caption": video_data.get('caption', '')
+                }
+
+            elif message_type == 'audio':
+                audio_data = message.get('audio', {})
+                result["media"] = {
+                    "id": audio_data.get('id'),
+                    "mime_type": audio_data.get('mime_type'),
+                    "sha256": audio_data.get('sha256')
+                }
+
+            elif message_type == 'document':
+                document_data = message.get('document', {})
+                result["media"] = {
+                    "id": document_data.get('id'),
+                    "mime_type": document_data.get('mime_type'),
+                    "sha256": document_data.get('sha256'),
+                    "filename": document_data.get('filename', ''),
+                    "caption": document_data.get('caption', '')
+                }
+
+            return result
+
+        except (IndexError, KeyError, TypeError) as e:
+            print(f"Error parsing webhook: {str(e)}")
+            return None
 
     @staticmethod
     def is_status_update(webhook_data: Dict) -> bool:
         """
-        Check if webhook is a status update (delivered, read, etc.)
+        Check if webhook is a status update (not a message)
 
-        TODO:
-        - Check if "statuses" field exists instead of "messages"
-        - Return True if it's a status update (we can ignore these)
+        Args:
+            webhook_data: The webhook payload
+
+        Returns:
+            True if this is a status update
         """
-        pass
+        try:
+            entry = webhook_data.get('entry', [])
+            if not entry:
+                return False
+
+            changes = entry[0].get('changes', [])
+            if not changes:
+                return False
+
+            value = changes[0].get('value', {})
+            return 'statuses' in value
+
+        except (IndexError, KeyError, TypeError):
+            return False
+
+    @staticmethod
+    def extract_sender(webhook_data: Dict) -> Optional[str]:
+        """
+        Extract sender's phone number from webhook
+
+        Args:
+            webhook_data: The webhook payload
+
+        Returns:
+            Sender's phone number or None
+        """
+        message = WhatsAppWebhookParser.parse_message(webhook_data)
+        return message.get('from') if message else None

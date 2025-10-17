@@ -1,64 +1,78 @@
 services:
-  # WhatsApp MCP Server
-  # This service runs the MCP server that exposes WhatsApp functionality
-  # to Claude Desktop and other MCP clients
-  #
-  # NOTE: WhatsApp webhook is handled by Next.js on Vercel, NOT by this service
-
+  # ==========================================
+  # WhatsApp MCP Service (All-in-One)
+  # Runs Python Agent SDK + WhatsApp MCP in Docker
+  # ==========================================
   - type: web
-    name: whatsapp-mcp-server
-    runtime: python
+    name: whatsapp-mcp
+    runtime: docker
     plan: starter  # $7/month - use 'free' for free tier (spins down after 15 min)
     region: oregon # or 'frankfurt', 'singapore'
 
-    # Build command - install Python dependencies
-    buildCommand: pip install -r requirements.txt
-
-    # Start command - run the MCP server with SSE transport
-    # Note: The server listens on $PORT (provided by Render)
-    startCommand: python src/python/mcp/server.py --transport sse --port $PORT
+    # Docker configuration
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
 
     # Health check endpoint
-    # TODO: Add /health endpoint in MCP server for Render to ping
     healthCheckPath: /health
 
     # Environment variables
     # NOTE: Set these in Render dashboard (don't commit secrets!)
     envVars:
+      # Claude API
       - key: ANTHROPIC_API_KEY
-        sync: false  # Set manually in dashboard
+        sync: false  # Set manually in dashboard (REQUIRED)
 
+      # WhatsApp Business API
       - key: WHATSAPP_ACCESS_TOKEN
-        sync: false
+        sync: false  # Set manually (REQUIRED)
 
       - key: WHATSAPP_PHONE_NUMBER_ID
-        sync: false
+        sync: false  # Set manually (REQUIRED)
 
-      - key: AGENT_SYSTEM_PROMPT
-        sync: false
+      - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        sync: false  # Set manually (REQUIRED)
 
+      # Service configuration
       - key: PORT
-        value: 8080  # Default port (Render overrides this)
+        value: 8000  # Default port (Render may override)
 
     # Auto-deploy when pushing to main branch
     autoDeploy: true
 
-# ============================================
+# ==========================================
 # DEPLOYMENT INSTRUCTIONS:
-# ============================================
+# ==========================================
 #
-# This file deploys ONLY the MCP server to Render.
-# The Next.js webhook is deployed separately to Vercel.
+# This configuration deploys ONE service to Render that contains:
+# 1. Python Claude Agent SDK Manager (FastAPI)
+# 2. WhatsApp MCP server (exposes WhatsApp tools)
+# 3. Agent spawning and management
 #
+# ARCHITECTURE (per your diagram):
+# - WhatsApp User sends message
+# - Webhook POST -> Render FastAPI service
+# - Python Claude Agent SDK Manager spawns agents
+# - Agents use MCP tools (WhatsApp MCP)
+# - Response sent back via WhatsApp API
+#
+# SETUP STEPS:
 # 1. Push this repo to GitHub
 # 2. Go to render.com and sign up/login
-# 3. Click "New" -> "Blueprint"
+# 3. Click "New" -> "Web Service"
 # 4. Connect your GitHub repo
-# 5. Render will detect this file and create the service
+# 5. Render will use this render.yaml Blueprint
 # 6. Set environment variables in Render dashboard
 # 7. Deploy!
 #
-# Your MCP server will be available at:
-# https://whatsapp-mcp-server.onrender.com/sse
+# YOUR SERVICE URL:
+# https://whatsapp-mcp-t9mi.onrender.com
 #
-# ============================================
+# CONFIGURE WHATSAPP:
+# 1. Go to Meta Business Suite -> WhatsApp -> Configuration
+# 2. Set webhook URL: https://whatsapp-mcp-t9mi.onrender.com/webhook
+# 3. Set verify token: (same as WHATSAPP_WEBHOOK_VERIFY_TOKEN)
+# 4. Subscribe to 'messages' events
+# 5. Test by sending a message to your WhatsApp Business number
+#
+# ==========================================
