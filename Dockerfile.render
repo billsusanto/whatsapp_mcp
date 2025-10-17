@@ -22,11 +22,16 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI and GitHub MCP server globally
+RUN npm install -g @anthropic-ai/claude-code @modelcontextprotocol/server-github
 
 # Create non-root user for security
 RUN useradd -m -u 1001 agentuser
+
+# Ensure npm cache and global packages are accessible to non-root user
+RUN mkdir -p /home/agentuser/.npm && \
+    chown -R agentuser:agentuser /home/agentuser/.npm && \
+    chmod -R 755 /usr/local/lib/node_modules
 
 # ============================================
 # Python Dependencies

@@ -38,19 +38,36 @@ def create_github_mcp_config(token: Optional[str] = None, readonly: bool = False
         )
 
     # Return GitHub MCP server config as dict
-    # Using npx to run the official GitHub MCP server
-    config = {
-        "command": "npx",
-        "args": [
-            "-y",
-            "@modelcontextprotocol/server-github"
-        ],
-        "env": {
-            "GITHUB_PERSONAL_ACCESS_TOKEN": github_token
-        }
-    }
+    # Using the pre-installed GitHub MCP server from Dockerfile
+    # Try direct execution first, fall back to npx if not available
+    import shutil
 
-    print(f"✅ GitHub MCP configured (npx transport, readonly={readonly})")
+    # Check if mcp-server-github is in PATH (globally installed)
+    mcp_server_path = shutil.which("mcp-server-github")
+
+    if mcp_server_path:
+        # Use direct execution (faster, no npx overhead)
+        config = {
+            "command": "mcp-server-github",
+            "args": [],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": github_token
+            }
+        }
+        print(f"✅ GitHub MCP configured (direct execution, readonly={readonly})")
+    else:
+        # Fallback to npx (will download package if needed)
+        config = {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-github"
+            ],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": github_token
+            }
+        }
+        print(f"✅ GitHub MCP configured (npx fallback, readonly={readonly})")
 
     return config
 
