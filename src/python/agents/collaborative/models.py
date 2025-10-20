@@ -16,6 +16,7 @@ class AgentRole(str, Enum):
     BACKEND = "backend_developer"
     QA = "qa_engineer"
     DEVOPS = "devops_engineer"
+    CODE_REVIEWER = "code_reviewer"
 
 
 class MessageType(str, Enum):

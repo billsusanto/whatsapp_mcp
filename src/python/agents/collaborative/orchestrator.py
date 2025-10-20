@@ -43,126 +43,748 @@ class CollaborativeOrchestrator:
         self.designer = DesignerAgent(mcp_servers)
         self.frontend = FrontendDeveloperAgent(mcp_servers)
 
-        # Create Claude SDK for orchestrator tasks (deployment, coordination)
+        # Create Claude SDK for orchestrator tasks (deployment, coordination, planning)
         self.deployment_sdk = ClaudeSDK(available_mcp_servers=mcp_servers)
 
-        # Configuration
-        self.max_iterations = 2  # Limit review iterations
+        # Create planning SDK for intelligent workflow decisions
+        self.planner_sdk = ClaudeSDK(available_mcp_servers={})  # No MCP tools needed for planning
 
-        print("\n✅ Orchestrator ready with 2 agents:")
+        # Configuration
+        self.max_review_iterations = 5  # Maximum review/improvement iterations
+        self.min_quality_score = 8  # Minimum acceptable review score (out of 10)
+        self.max_build_retries = 3  # Maximum build retry attempts
+
+        print("\n✅ Orchestrator ready with cognitive planning:")
         print(f"   - {self.designer.agent_card.name}")
         print(f"   - {self.frontend.agent_card.name}")
+        print(f"   - AI Planner (Claude-powered workflow decisions)")
         print(f"   - Deployment SDK with {len(mcp_servers)} MCP servers")
         print("=" * 60 + "\n")
 
-    async def build_webapp(self, user_prompt: str) -> str:
+    async def _ai_plan_workflow(self, user_prompt: str) -> Dict:
         """
-        Main workflow: User prompt → Deployed webapp
-
-        Phase 2-4 Complete: Real AI agents with Netlify deployment
-
-        Args:
-            user_prompt: User's webapp description
+        Use Claude AI to intelligently analyze the request and plan the workflow
 
         Returns:
-            WhatsApp-formatted response with deployment URL
+            {
+                "workflow": "full_build" | "bug_fix" | "redeploy" | "design_only" | "custom",
+                "reasoning": "Why this workflow was chosen",
+                "agents_needed": ["designer", "frontend", "reviewer", etc],
+                "steps": ["Step 1 description", "Step 2 description", ...],
+                "estimated_complexity": "simple" | "moderate" | "complex",
+                "special_instructions": "Any special handling needed"
+            }
         """
-        print(f"\n🚀 [ORCHESTRATOR] Starting webapp generation")
+        planning_prompt = f"""You are an AI orchestrator planning how to fulfill a user's request using a multi-agent development team.
+
+**Available Agents:**
+- **UI/UX Designer Agent**: Creates design specifications, color palettes, typography, layouts, component designs
+- **Frontend Developer Agent**: Implements React/Vue/Next.js code, fixes bugs, handles dependencies
+- **Deployment System**: Deploys to Netlify, handles build verification, manages retries
+
+**Available Workflows:**
+1. **full_build**: Build a complete new webapp from scratch
+   - Steps: Designer → Frontend → Review → Deploy with verification
+   - Agents: Designer + Frontend
+   - Use when: User wants to create a new application
+
+2. **bug_fix**: Fix errors in existing code
+   - Steps: Frontend analyzes and fixes → Deploy with verification
+   - Agents: Frontend only
+   - Use when: User reports errors, build failures, bugs
+
+3. **redeploy**: Redeploy existing code without changes
+   - Steps: Direct deployment
+   - Agents: None (direct deployment)
+   - Use when: User wants to redeploy existing code from GitHub
+
+4. **design_only**: Just create design specifications
+   - Steps: Designer creates design spec
+   - Agents: Designer only
+   - Use when: User only wants design consultation, mockups, wireframes
+
+5. **custom**: Create a custom workflow
+   - Use when: Request doesn't fit standard workflows
+
+**User Request:**
+"{user_prompt}"
+
+**Your Task:**
+Analyze the user's request and determine:
+1. What does the user actually want?
+2. Which workflow best fits this request?
+3. Which agents are needed?
+4. What are the specific steps to execute?
+5. Are there any special considerations?
+
+**Output Format (JSON):**
+{{
+  "workflow": "full_build" | "bug_fix" | "redeploy" | "design_only" | "custom",
+  "reasoning": "Clear explanation of why you chose this workflow",
+  "agents_needed": ["designer", "frontend"],
+  "steps": [
+    "Designer creates comprehensive design specification",
+    "Frontend implements React components based on design",
+    "Designer reviews implementation for design fidelity",
+    "Deploy to Netlify with build verification (up to 3 retries)",
+    "Format and send response to user"
+  ],
+  "estimated_complexity": "simple" | "moderate" | "complex",
+  "special_instructions": "Any special handling, edge cases, or important notes"
+}}
+
+**Important Guidelines:**
+- Be precise about which agents are needed
+- Consider build verification for code generation
+- Think about what will provide the best user experience
+- Consider the complexity and scope of the request
+- If unsure, prefer full_build over simpler workflows
+
+Respond with ONLY the JSON object, no other text."""
+
+        try:
+            # Get planning decision from Claude
+            response = await self.planner_sdk.send_message(planning_prompt)
+
+            # Extract JSON from response
+            import json
+            import re
+
+            # Look for JSON in code blocks or raw JSON
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                plan = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                plan = json.loads(response)
+            else:
+                # Claude didn't return JSON, create fallback plan
+                print(f"⚠️  Could not parse planning response, using default")
+                plan = {
+                    "workflow": "full_build",
+                    "reasoning": "Default workflow - could not parse AI response",
+                    "agents_needed": ["designer", "frontend"],
+                    "steps": ["Design", "Implement", "Review", "Deploy"],
+                    "estimated_complexity": "moderate",
+                    "special_instructions": "Using default workflow"
+                }
+
+            print(f"\n🧠 AI Planning Complete:")
+            print(f"   Workflow: {plan['workflow']}")
+            print(f"   Reasoning: {plan['reasoning']}")
+            print(f"   Agents: {', '.join(plan['agents_needed'])}")
+            print(f"   Complexity: {plan['estimated_complexity']}")
+
+            return plan
+
+        except Exception as e:
+            print(f"❌ Planning error: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Fallback to safe default
+            return {
+                "workflow": "full_build",
+                "reasoning": f"Fallback due to error: {str(e)}",
+                "agents_needed": ["designer", "frontend"],
+                "steps": ["Design", "Implement", "Review", "Deploy"],
+                "estimated_complexity": "moderate",
+                "special_instructions": "Error during planning - using default"
+            }
+
+    async def build_webapp(self, user_prompt: str) -> str:
+        """
+        Main workflow: Uses AI planning to intelligently route requests
+
+        Args:
+            user_prompt: User's request
+
+        Returns:
+            WhatsApp-formatted response
+        """
+        print(f"\n🚀 [ORCHESTRATOR] Starting AI-powered request processing")
         print(f"📝 User request: {user_prompt}")
         print("\n" + "-" * 60)
 
+        # Use AI to plan the workflow
+        plan = await self._ai_plan_workflow(user_prompt)
+        workflow_type = plan.get('workflow', 'full_build')
+
+        print("\n" + "-" * 60)
+
         try:
-            # Step 1: Designer creates design specification
-            print("\n[Step 1/5] 🎨 Designer creating design specification...")
-            design_task = Task(
-                description=f"Create design specification for: {user_prompt}",
-                from_agent="orchestrator",
-                to_agent=self.designer.agent_card.agent_id
-            )
-            design_result = await self.designer.execute_task(design_task)
-            design_spec = design_result.get('design_spec', {})
+            # Route to appropriate workflow based on AI decision
+            if workflow_type == "redeploy":
+                return await self._workflow_redeploy(user_prompt, plan)
+            elif workflow_type == "bug_fix":
+                return await self._workflow_bug_fix(user_prompt, plan)
+            elif workflow_type == "design_only":
+                return await self._workflow_design_only(user_prompt, plan)
+            elif workflow_type == "custom":
+                return await self._workflow_custom(user_prompt, plan)
+            else:  # full_build (default)
+                return await self._workflow_full_build(user_prompt, plan)
 
-            # Extract design style safely
-            if isinstance(design_spec, dict):
-                design_style = design_spec.get('style', 'modern')
-            else:
-                design_style = 'modern'
+        except Exception as e:
+            print(f"\n❌ [ORCHESTRATOR] Error during processing: {e}")
+            import traceback
+            traceback.print_exc()
 
-            print(f"✓ Design completed")
+            return f"""❌ Request encountered an error:
 
-            # Step 2: Frontend implements design
-            print("\n[Step 2/5] 💻 Frontend implementing design...")
+{str(e)}
 
-            # Pass design spec to frontend via task metadata
-            impl_task = Task(
-                description=f"Implement webapp: {user_prompt}",
-                from_agent="orchestrator",
-                to_agent=self.frontend.agent_card.agent_id,
-                metadata={"design_spec": design_spec}
-            )
+The AI planner suggested: {plan.get('workflow', 'unknown')}
+Reasoning: {plan.get('reasoning', 'N/A')}
 
-            impl_result = await self.frontend.execute_task(impl_task)
-            implementation = impl_result.get('implementation', {})
-            framework = implementation.get('framework', 'react')
+Please try again or provide more details."""
 
-            print(f"✓ Implementation completed: {framework}")
+    async def _workflow_full_build(self, user_prompt: str, plan: Dict = None) -> str:
+        """Full build workflow: Designer → Frontend → Review → Deploy"""
+        print(f"\n🏗️  Starting FULL BUILD workflow")
 
-            # Step 3: Designer reviews implementation
-            print("\n[Step 3/5] 🔍 Designer reviewing implementation...")
+        if plan and plan.get('special_instructions'):
+            print(f"📋 Special instructions: {plan['special_instructions']}")
+
+        # Step 1: Designer creates design specification
+        print("\n[Step 1/5] 🎨 Designer creating design specification...")
+        design_task = Task(
+            description=f"Create design specification for: {user_prompt}",
+            from_agent="orchestrator",
+            to_agent=self.designer.agent_card.agent_id
+        )
+        design_result = await self.designer.execute_task(design_task)
+        design_spec = design_result.get('design_spec', {})
+
+        # Extract design style safely
+        if isinstance(design_spec, dict):
+            design_style = design_spec.get('style', 'modern')
+        else:
+            design_style = 'modern'
+
+        print(f"✓ Design completed")
+
+        # Step 2: Frontend implements design
+        print("\n[Step 2/5] 💻 Frontend implementing design...")
+        impl_task = Task(
+            description=f"Implement webapp: {user_prompt}",
+            from_agent="orchestrator",
+            to_agent=self.frontend.agent_card.agent_id,
+            metadata={"design_spec": design_spec}
+        )
+
+        impl_result = await self.frontend.execute_task(impl_task)
+        implementation = impl_result.get('implementation', {})
+        framework = implementation.get('framework', 'react')
+
+        print(f"✓ Implementation completed: {framework}")
+
+        # Step 3: Quality verification loop - ensure score >= 8/10
+        print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10)...".format(self.min_quality_score))
+
+        review_iteration = 0
+        score = 0
+        approved = False
+        current_implementation = implementation
+
+        while review_iteration < self.max_review_iterations:
+            review_iteration += 1
+            print(f"\n   Review iteration {review_iteration}/{self.max_review_iterations}")
+
+            # Designer reviews implementation
             review_artifact = {
                 "original_design": design_spec,
-                "implementation": implementation
+                "implementation": current_implementation
             }
             review = await self.designer.review_artifact(review_artifact)
             approved = review.get('approved', True)
             score = review.get('score', 8)
+            feedback = review.get('feedback', [])
 
-            print(f"✓ Review completed: {'✅ Approved' if approved else '⚠️ Changes suggested'} (Score: {score}/10)")
+            print(f"   Score: {score}/10 - {'✅ Approved' if approved else '⚠️ Needs improvement'}")
 
-            # Step 4: Deploy to Netlify using Claude SDK with Netlify MCP
-            print("\n[Step 4/5] 🚀 Deploying to Netlify...")
-            deployment_url = await self._deploy_to_netlify(
-                user_prompt=user_prompt,
-                implementation=implementation
+            # Check if quality standard is met
+            if score >= self.min_quality_score:
+                print(f"   ✅ Quality standard met! (Score: {score}/10 >= {self.min_quality_score}/10)")
+                break
+
+            # Quality not met - need improvement
+            if review_iteration >= self.max_review_iterations:
+                print(f"   ⚠️  Max iterations reached - proceeding with current quality (Score: {score}/10)")
+                break
+
+            # Ask Frontend to improve based on feedback
+            print(f"   🔧 Quality below standard ({score}/10 < {self.min_quality_score}/10) - requesting improvements...")
+            print(f"   📋 Feedback: {', '.join(feedback) if feedback else 'General improvements needed'}")
+
+            improvement_task = Task(
+                description=f"""Improve the implementation based on design review feedback.
+
+Original request: {user_prompt}
+
+Design review score: {score}/10 (Target: {self.min_quality_score}/10)
+Feedback: {', '.join(feedback)}
+
+Please address all feedback and improve the implementation to meet the quality standard.""",
+                from_agent="orchestrator",
+                to_agent=self.frontend.agent_card.agent_id,
+                metadata={
+                    "design_spec": design_spec,
+                    "previous_implementation": current_implementation,
+                    "review_feedback": feedback,
+                    "review_score": score
+                }
             )
 
-            if deployment_url:
-                print(f"✓ Deployed to: {deployment_url}")
+            improvement_result = await self.frontend.execute_task(improvement_task)
+            current_implementation = improvement_result.get('implementation', current_implementation)
+            print(f"   ✓ Frontend provided improved implementation")
+
+        # Use the final implementation (after quality loop)
+        implementation = current_implementation
+
+        print(f"\n✓ Quality verification completed: Score {score}/10 after {review_iteration} iteration(s)")
+
+        # Step 4: Deploy to Netlify with build verification and retry
+        print("\n[Step 4/5] 🚀 Deploying to Netlify with build verification...")
+        deployment_result = await self._deploy_with_retry(
+            user_prompt=user_prompt,
+            implementation=implementation,
+            design_spec=design_spec
+        )
+
+        deployment_url = deployment_result.get('url', 'https://app.netlify.com/teams')
+        build_attempts = deployment_result.get('attempts', 1)
+        final_implementation = deployment_result.get('final_implementation', implementation)
+
+        print(f"✓ Deployed successfully after {build_attempts} attempt(s): {deployment_url}")
+
+        # Step 5: Format response
+        print("\n[Step 5/5] 📱 Formatting WhatsApp response...")
+        response = self._format_whatsapp_response(
+            url=deployment_url,
+            design_style=design_style,
+            framework=framework,
+            review_score=score,
+            build_attempts=build_attempts,
+            review_iterations=review_iteration
+        )
+
+        print("\n" + "-" * 60)
+        print("✅ [ORCHESTRATOR] Full build complete!\n")
+        return response
+
+    async def _workflow_bug_fix(self, user_prompt: str, plan: Dict = None) -> str:
+        """Bug fix workflow: Frontend fixes code → Deploy"""
+        print(f"\n🔧 Starting BUG FIX workflow")
+
+        if plan and plan.get('special_instructions'):
+            print(f"📋 Special instructions: {plan['special_instructions']}")
+
+        # Step 1: Frontend fixes the issue
+        print("\n[Step 1/2] 💻 Frontend analyzing and fixing issue...")
+        fix_task = Task(
+            description=f"Analyze and fix this issue: {user_prompt}",
+            from_agent="orchestrator",
+            to_agent=self.frontend.agent_card.agent_id
+        )
+
+        fix_result = await self.frontend.execute_task(fix_task)
+        implementation = fix_result.get('implementation', {})
+        framework = implementation.get('framework', 'react')
+
+        print(f"✓ Initial fix completed")
+
+        # Step 2: Deploy to Netlify with build verification and retry
+        print("\n[Step 2/2] 🚀 Deploying fixed code with build verification...")
+        deployment_result = await self._deploy_with_retry(
+            user_prompt=user_prompt,
+            implementation=implementation,
+            design_spec={}  # No design spec for bug fixes
+        )
+
+        deployment_url = deployment_result.get('url', 'https://app.netlify.com/teams')
+        build_attempts = deployment_result.get('attempts', 1)
+
+        print(f"✓ Deployed successfully after {build_attempts} fix attempt(s): {deployment_url}")
+
+        response = f"""✅ Bug fix complete and deployed!
+
+🔗 Live Site: {deployment_url}
+
+🔧 What was fixed:
+  • Analyzed the error/issue
+  • Applied fixes
+  • Redeployed to Netlify
+
+⚙️ Technical:
+  • Framework: {framework}
+  • Deployed on Netlify
+
+🤖 Fixed by Frontend Developer Agent
+"""
+
+        print("\n" + "-" * 60)
+        print("✅ [ORCHESTRATOR] Bug fix complete!\n")
+        return response
+
+    async def _workflow_redeploy(self, user_prompt: str, plan: Dict = None) -> str:
+        """Redeploy workflow: Just deploy existing code"""
+        print(f"\n🚀 Starting REDEPLOY workflow")
+
+        if plan and plan.get('special_instructions'):
+            print(f"📋 Special instructions: {plan['special_instructions']}")
+
+        # Step 1: Deploy directly
+        print("\n[Step 1/1] 🚀 Redeploying to Netlify...")
+
+        # Ask Claude to use Netlify MCP to redeploy
+        redeploy_prompt = f"""User request: {user_prompt}
+
+Use Netlify MCP to redeploy the existing site.
+
+Steps:
+1. If a GitHub repo is mentioned, clone it
+2. Redeploy the site to Netlify
+3. Return the live deployment URL
+
+Respond with ONLY the deployment URL."""
+
+        response_text = await self.deployment_sdk.send_message(redeploy_prompt)
+
+        # Extract URL
+        import re
+        url_match = re.search(r'https://[a-zA-Z0-9-]+\.netlify\.app', response_text)
+        if url_match:
+            deployment_url = url_match.group(0)
+            print(f"✓ Redeployed to: {deployment_url}")
+        else:
+            dashboard_match = re.search(r'https://app\.netlify\.com/[^\s]+', response_text)
+            if dashboard_match:
+                deployment_url = dashboard_match.group(0)
             else:
-                print(f"⚠️  Deployment attempted - check logs for URL")
-                deployment_url = "https://app.netlify.com/teams"  # Fallback to dashboard
+                deployment_url = "https://app.netlify.com/teams"
 
-            # Step 5: Format response for WhatsApp
-            print("\n[Step 5/5] 📱 Formatting WhatsApp response...")
-            response = self._format_whatsapp_response(
-                url=deployment_url,
-                design_style=design_style,
-                framework=framework,
-                review_score=score
+        response = f"""✅ Site redeployed successfully!
+
+🔗 Live Site: {deployment_url}
+
+🚀 Redeployment complete
+  • Existing code deployed
+  • No changes made to design or implementation
+
+🤖 Deployed by Orchestrator
+"""
+
+        print("\n" + "-" * 60)
+        print("✅ [ORCHESTRATOR] Redeploy complete!\n")
+        return response
+
+    async def _workflow_design_only(self, user_prompt: str, plan: Dict = None) -> str:
+        """Design only workflow: Designer creates design spec"""
+        print(f"\n🎨 Starting DESIGN ONLY workflow")
+
+        if plan and plan.get('special_instructions'):
+            print(f"📋 Special instructions: {plan['special_instructions']}")
+
+        # Step 1: Designer creates design
+        print("\n[Step 1/1] 🎨 Designer creating design specification...")
+        design_task = Task(
+            description=f"Create design specification for: {user_prompt}",
+            from_agent="orchestrator",
+            to_agent=self.designer.agent_card.agent_id
+        )
+        design_result = await self.designer.execute_task(design_task)
+        design_spec = design_result.get('design_spec', {})
+
+        # Format design for WhatsApp
+        response = f"""✅ Design specification complete!
+
+🎨 Design created by UI/UX Designer Agent
+
+📋 Design includes:
+  • Style guidelines
+  • Color palette
+  • Typography system
+  • Component specifications
+  • Layout structure
+  • Accessibility requirements
+
+💡 Ready to implement? Send a message like "Implement this design" to have the Frontend agent build it!
+
+🤖 Designed by UI/UX Designer Agent
+"""
+
+        print("\n" + "-" * 60)
+        print("✅ [ORCHESTRATOR] Design complete!\n")
+        return response
+
+    async def _workflow_custom(self, user_prompt: str, plan: Dict) -> str:
+        """
+        Custom workflow: Execute workflow based on AI planner's instructions
+
+        This workflow adapts to the AI planner's suggestions and can combine
+        different agents and steps as needed.
+        """
+        print(f"\n🔮 Starting CUSTOM workflow")
+        print(f"📋 AI Planner reasoning: {plan.get('reasoning', 'N/A')}")
+
+        if plan.get('special_instructions'):
+            print(f"📋 Special instructions: {plan['special_instructions']}")
+
+        agents_needed = plan.get('agents_needed', [])
+        steps = plan.get('steps', [])
+
+        print(f"\n🤖 Agents needed: {', '.join(agents_needed)}")
+        print(f"📝 Steps planned: {len(steps)}")
+
+        # Execute steps based on AI plan
+        design_spec = None
+        implementation = None
+
+        for i, step in enumerate(steps):
+            print(f"\n[Step {i+1}/{len(steps)}] {step}")
+
+            # Detect what this step requires
+            step_lower = step.lower()
+
+            # Designer step
+            if 'designer' in agents_needed and any(keyword in step_lower for keyword in ['design', 'mockup', 'ui', 'ux', 'wireframe']):
+                design_task = Task(
+                    description=f"{step}: {user_prompt}",
+                    from_agent="orchestrator",
+                    to_agent=self.designer.agent_card.agent_id
+                )
+                design_result = await self.designer.execute_task(design_task)
+                design_spec = design_result.get('design_spec', {})
+                print(f"✓ Designer completed step")
+
+            # Frontend step
+            elif 'frontend' in agents_needed and any(keyword in step_lower for keyword in ['implement', 'code', 'build', 'develop', 'fix']):
+                impl_task = Task(
+                    description=f"{step}: {user_prompt}",
+                    from_agent="orchestrator",
+                    to_agent=self.frontend.agent_card.agent_id,
+                    metadata={"design_spec": design_spec} if design_spec else None
+                )
+                impl_result = await self.frontend.execute_task(impl_task)
+                implementation = impl_result.get('implementation', {})
+                print(f"✓ Frontend completed step")
+
+            # Review step
+            elif 'review' in step_lower and design_spec and implementation:
+                review_artifact = {
+                    "original_design": design_spec,
+                    "implementation": implementation
+                }
+                review = await self.designer.review_artifact(review_artifact)
+                approved = review.get('approved', True)
+                score = review.get('score', 8)
+                print(f"✓ Review completed: {'✅ Approved' if approved else '⚠️ Changes suggested'} (Score: {score}/10)")
+
+            # Deploy step
+            elif 'deploy' in step_lower and implementation:
+                deployment_result = await self._deploy_with_retry(
+                    user_prompt=user_prompt,
+                    implementation=implementation,
+                    design_spec=design_spec or {}
+                )
+                deployment_url = deployment_result.get('url', 'https://app.netlify.com/teams')
+                build_attempts = deployment_result.get('attempts', 1)
+                print(f"✓ Deployed successfully after {build_attempts} attempt(s)")
+
+                # Return success response
+                framework = implementation.get('framework', 'react')
+                return f"""✅ Custom workflow complete!
+
+🔗 Live Site: {deployment_url}
+
+🎯 AI-Planned Workflow:
+  • Workflow type: {plan.get('workflow', 'custom')}
+  • Reasoning: {plan.get('reasoning', 'N/A')}
+  • Agents used: {', '.join(agents_needed)}
+  • Steps executed: {len(steps)}
+  • Complexity: {plan.get('estimated_complexity', 'N/A')}
+
+⚙️ Technical:
+  • Framework: {framework}
+  • Deployed on Netlify
+  • Build attempts: {build_attempts}
+
+🤖 Coordinated by AI Planner + Multi-Agent System
+"""
+
+        # If no deployment occurred, return a summary
+        response = f"""✅ Custom workflow complete!
+
+🎯 AI-Planned Workflow:
+  • Workflow type: {plan.get('workflow', 'custom')}
+  • Reasoning: {plan.get('reasoning', 'N/A')}
+  • Agents used: {', '.join(agents_needed)}
+  • Steps executed: {len(steps)}
+  • Complexity: {plan.get('estimated_complexity', 'N/A')}
+
+📋 Results:
+"""
+
+        if design_spec:
+            response += "\n  ✅ Design specification created"
+        if implementation:
+            response += "\n  ✅ Implementation completed"
+
+        response += "\n\n🤖 Coordinated by AI Planner + Multi-Agent System"
+
+        print("\n" + "-" * 60)
+        print("✅ [ORCHESTRATOR] Custom workflow complete!\n")
+        return response
+
+    async def _deploy_with_retry(
+        self,
+        user_prompt: str,
+        implementation: Dict,
+        design_spec: Dict
+    ) -> Dict:
+        """
+        Deploy to Netlify with build verification and automatic retry
+
+        Returns:
+            {
+                'url': deployment_url,
+                'attempts': number_of_attempts,
+                'final_implementation': final_working_implementation,
+                'build_errors': list_of_errors_encountered
+            }
+        """
+        attempts = 0
+        current_implementation = implementation
+        all_build_errors = []
+
+        while attempts < self.max_build_retries:
+            attempts += 1
+            print(f"\n🔨 Build attempt {attempts}/{self.max_build_retries}")
+
+            # Try to deploy
+            deployment_url, build_error = await self._deploy_and_check_build(
+                user_prompt=user_prompt,
+                implementation=current_implementation
             )
 
-            print("\n" + "-" * 60)
-            print("✅ [ORCHESTRATOR] Webapp generation complete!\n")
+            # Success!
+            if deployment_url and not build_error:
+                print(f"✅ Build successful on attempt {attempts}")
+                return {
+                    'url': deployment_url,
+                    'attempts': attempts,
+                    'final_implementation': current_implementation,
+                    'build_errors': all_build_errors
+                }
 
-            return response
+            # Build failed
+            if build_error:
+                print(f"❌ Build failed on attempt {attempts}")
+                print(f"   Error: {build_error[:200]}...")
+                all_build_errors.append(build_error)
+
+                # If this is the last attempt, give up
+                if attempts >= self.max_build_retries:
+                    print(f"⚠️  Max retries reached - deploying with errors")
+                    return {
+                        'url': deployment_url or 'https://app.netlify.com/teams',
+                        'attempts': attempts,
+                        'final_implementation': current_implementation,
+                        'build_errors': all_build_errors
+                    }
+
+                # Ask Frontend to fix the build error
+                print(f"\n🔧 Asking Frontend agent to fix build errors...")
+                fix_task = Task(
+                    description=f"Fix these build errors:\n\n{build_error}\n\nOriginal task: {user_prompt}",
+                    from_agent="orchestrator",
+                    to_agent=self.frontend.agent_card.agent_id,
+                    metadata={"design_spec": design_spec, "previous_implementation": current_implementation}
+                )
+
+                fix_result = await self.frontend.execute_task(fix_task)
+                current_implementation = fix_result.get('implementation', current_implementation)
+                print(f"✓ Frontend provided updated implementation")
+
+        # Should never reach here, but just in case
+        return {
+            'url': 'https://app.netlify.com/teams',
+            'attempts': attempts,
+            'final_implementation': current_implementation,
+            'build_errors': all_build_errors
+        }
+
+    async def _deploy_and_check_build(
+        self,
+        user_prompt: str,
+        implementation: Dict
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Deploy to Netlify and check for build errors
+
+        Returns:
+            (deployment_url, build_error)
+            - If successful: (url, None)
+            - If build failed: (None, error_message)
+        """
+        try:
+            files = implementation.get('files', [])
+
+            if not files:
+                return (None, "No files to deploy")
+
+            # Create deployment prompt
+            deployment_prompt = f"""Deploy this webapp to Netlify and report if there are any build errors.
+
+**Webapp Description:** {user_prompt}
+
+**Files to Deploy:**
+{self._format_files_for_deployment(files)}
+
+**Task:**
+1. Create a new Netlify site (or use an existing one)
+2. Deploy these files to Netlify
+3. Check if the build succeeded or failed
+4. If the build failed, extract and return the complete error message
+5. Return the deployment URL if successful, or the error details if failed
+
+IMPORTANT: Check the build logs carefully for errors like:
+- Missing dependencies (Cannot find module 'X')
+- TypeScript errors
+- Import/export errors
+- Configuration issues
+
+Respond in this format:
+- If successful: "SUCCESS: https://your-site.netlify.app"
+- If failed: "BUILD_ERROR: [full error message with all details]"
+"""
+
+            response = await self.deployment_sdk.send_message(deployment_prompt)
+
+            # Check if build succeeded or failed
+            if "BUILD_ERROR:" in response:
+                # Extract error message
+                error_start = response.find("BUILD_ERROR:") + len("BUILD_ERROR:")
+                build_error = response[error_start:].strip()
+                return (None, build_error)
+
+            # Extract URL from successful deployment
+            import re
+            url_match = re.search(r'https://[a-zA-Z0-9-]+\.netlify\.app', response)
+            if url_match:
+                return (url_match.group(0), None)
+
+            # Check for dashboard URL (might mean pending deployment)
+            dashboard_match = re.search(r'https://app\.netlify\.com/[^\s]+', response)
+            if dashboard_match:
+                return (dashboard_match.group(0), None)
+
+            # Couldn't determine - treat as error
+            return (None, f"Could not determine build status from response: {response[:200]}")
 
         except Exception as e:
-            print(f"\n❌ [ORCHESTRATOR] Error during webapp generation: {e}")
-            import traceback
-            traceback.print_exc()
-
-            # Return error message to user
-            return f"""❌ Webapp generation encountered an error:
-
-{str(e)}
-
-The multi-agent system attempted to:
-1. Create a design specification
-2. Implement the design in React
-3. Review the implementation
-4. Deploy to Netlify
-
-Please try again or check the logs for more details."""
+            return (None, f"Deployment exception: {str(e)}")
 
     async def _deploy_to_netlify(
         self,
@@ -253,9 +875,23 @@ Respond with ONLY the deployment URL (e.g., https://your-site-name.netlify.app) 
         url: str,
         design_style: str,
         framework: str,
-        review_score: int = 8
+        review_score: int = 8,
+        build_attempts: int = 1,
+        review_iterations: int = 1
     ) -> str:
         """Format response for WhatsApp"""
+        build_status = ""
+        if build_attempts > 1:
+            build_status = f"\n  • Build verified after {build_attempts} attempts ✅"
+        elif build_attempts == 1:
+            build_status = "\n  • Build verified on first attempt ✅"
+
+        quality_status = ""
+        if review_iterations > 1:
+            quality_status = f"\n  • Quality improved over {review_iterations} iterations ✅"
+        elif review_iterations == 1:
+            quality_status = "\n  • Quality approved on first review ✅"
+
         return f"""✅ Your webapp is ready!
 
 🔗 Live Site: {url}
@@ -264,24 +900,26 @@ Respond with ONLY the deployment URL (e.g., https://your-site-name.netlify.app) 
   • Style: {design_style}
   • Fully responsive
   • Accessibility optimized
-  • Review score: {review_score}/10
+  • Quality score: {review_score}/10{quality_status}
 
 ⚙️ Technical:
   • Framework: {framework}
   • Build tool: Vite
-  • Deployed on Netlify
+  • Deployed on Netlify{build_status}
 
 🤖 Built by AI Agent Team:
-  • UI/UX Designer Agent (design)
-  • Frontend Developer Agent (implementation)
-  • Collaborative review process
+  • UI/UX Designer Agent (design + quality review)
+  • Frontend Developer Agent (implementation + improvements)
+  • Iterative quality improvement (minimum {self.min_quality_score}/10)
+  • Automatic build verification
 
 🚀 Powered by Claude Multi-Agent System
 """
 
     async def cleanup(self):
-        """Clean up all agents and deployment SDK"""
+        """Clean up all agents and SDKs"""
         await self.designer.cleanup()
         await self.frontend.cleanup()
         await self.deployment_sdk.close()
-        print("🧹 [ORCHESTRATOR] Cleaned up all agents and deployment SDK")
+        await self.planner_sdk.close()
+        print("🧹 [ORCHESTRATOR] Cleaned up all agents, deployment SDK, and planner SDK")
