@@ -72,8 +72,10 @@ Always implement designs with pixel-perfect accuracy based on design specificati
         """
         print(f"💻 [FRONTEND] Implementing: {task.description}")
 
-        # Extract design spec from task
-        design_spec = task.content if hasattr(task, 'content') and isinstance(task.content, dict) else {}
+        # Extract design spec from task metadata
+        design_spec = {}
+        if task.metadata and isinstance(task.metadata, dict):
+            design_spec = task.metadata.get('design_spec', {})
 
         # Create comprehensive implementation prompt
         implementation_prompt = f"""You are an expert Frontend Developer implementing a webapp based on a design specification.

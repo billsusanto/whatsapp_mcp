@@ -93,14 +93,13 @@ class CollaborativeOrchestrator:
             # Step 2: Frontend implements design
             print("\n[Step 2/5] 💻 Frontend implementing design...")
 
-            # Pass design spec to frontend via task content
+            # Pass design spec to frontend via task metadata
             impl_task = Task(
                 description=f"Implement webapp: {user_prompt}",
                 from_agent="orchestrator",
-                to_agent=self.frontend.agent_card.agent_id
+                to_agent=self.frontend.agent_card.agent_id,
+                metadata={"design_spec": design_spec}
             )
-            # Add design spec to task for frontend to use
-            impl_task.content = design_spec
 
             impl_result = await self.frontend.execute_task(impl_task)
             implementation = impl_result.get('implementation', {})
