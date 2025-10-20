@@ -48,9 +48,16 @@ class CollaborativeOrchestrator:
     # Orchestrator's agent ID for A2A protocol
     ORCHESTRATOR_ID = "orchestrator"
 
+    # Agent IDs (must match BaseAgent initialization)
+    DESIGNER_ID = "designer_001"
+    FRONTEND_ID = "frontend_001"
+    CODE_REVIEWER_ID = "code_reviewer_001"
+    QA_ID = "qa_engineer_001"
+    DEVOPS_ID = "devops_001"
+
     def __init__(self, mcp_servers: Dict):
         """
-        Initialize orchestrator with specialized agent team
+        Initialize orchestrator with lazy agent initialization for resource efficiency
 
         Args:
             mcp_servers: Available MCP servers (WhatsApp, GitHub, Netlify)
@@ -62,12 +69,10 @@ class CollaborativeOrchestrator:
         self.mcp_servers = mcp_servers
         self.orchestrator_id = self.ORCHESTRATOR_ID
 
-        # Create specialized agent team (they auto-register with A2A protocol)
-        self.designer = DesignerAgent(mcp_servers)
-        self.frontend = FrontendDeveloperAgent(mcp_servers)
-        self.code_reviewer = CodeReviewerAgent(mcp_servers)
-        self.qa_engineer = QAEngineerAgent(mcp_servers)
-        self.devops = DevOpsEngineerAgent(mcp_servers)
+        # Lazy initialization: agents are NOT created at startup
+        # They're created on-demand when needed and cleaned up after use
+        self._active_agents: Dict[str, any] = {}  # Currently active agents
+        self._agent_cache: Dict[str, any] = {}  # Cached agent instances (optional reuse)
 
         # Create Claude SDK for orchestrator tasks (deployment, coordination, planning)
         self.deployment_sdk = ClaudeSDK(available_mcp_servers=mcp_servers)
@@ -79,77 +84,204 @@ class CollaborativeOrchestrator:
         self.max_review_iterations = 5  # Maximum review/improvement iterations
         self.min_quality_score = 8  # Minimum acceptable review score (out of 10)
         self.max_build_retries = 3  # Maximum build retry attempts
+        self.enable_agent_caching = False  # Set to True to reuse agents (uses more memory but faster)
 
-        print("\n✅ Multi-Agent Team Ready (A2A-enabled):")
-        print(f"   - {self.designer.agent_card.name} ({self.designer.agent_card.agent_id})")
-        print(f"   - {self.frontend.agent_card.name} ({self.frontend.agent_card.agent_id})")
-        print(f"   - {self.code_reviewer.agent_card.name} ({self.code_reviewer.agent_card.agent_id})")
-        print(f"   - {self.qa_engineer.agent_card.name} ({self.qa_engineer.agent_card.agent_id})")
-        print(f"   - {self.devops.agent_card.name} ({self.devops.agent_card.agent_id})")
+        print("\n✅ Multi-Agent Orchestrator Ready (Lazy Initialization):")
+        print(f"   - Agents will be spun up on-demand when needed")
+        print(f"   - Agents will be cleaned up after task completion")
+        print(f"   - Agent caching: {'Enabled' if self.enable_agent_caching else 'Disabled (saves memory)'}")
         print(f"   - AI Planner (Claude-powered workflow decisions)")
         print(f"   - Deployment SDK with {len(mcp_servers)} MCP servers")
-        print(f"\n🔗 A2A Protocol: All agents registered and ready for communication")
+        print(f"\n🔗 A2A Protocol: Agents register/unregister dynamically")
         print("=" * 60 + "\n")
+
+    # ==========================================
+    # AGENT LIFECYCLE MANAGEMENT (LAZY INITIALIZATION)
+    # ==========================================
+
+    async def _get_agent(self, agent_type: str):
+        """
+        Get or create an agent on-demand (lazy initialization)
+
+        Args:
+            agent_type: Type of agent ("designer", "frontend", "code_reviewer", "qa", "devops")
+
+        Returns:
+            Agent instance
+        """
+        # Check if agent is already active
+        if agent_type in self._active_agents:
+            return self._active_agents[agent_type]
+
+        # Check if agent is cached and caching is enabled
+        if self.enable_agent_caching and agent_type in self._agent_cache:
+            agent = self._agent_cache[agent_type]
+            self._active_agents[agent_type] = agent
+            print(f"♻️  Reusing cached {agent_type} agent")
+            return agent
+
+        # Create new agent instance
+        print(f"🚀 Spinning up {agent_type} agent...")
+
+        if agent_type == "designer":
+            agent = DesignerAgent(self.mcp_servers)
+        elif agent_type == "frontend":
+            agent = FrontendDeveloperAgent(self.mcp_servers)
+        elif agent_type == "code_reviewer":
+            agent = CodeReviewerAgent(self.mcp_servers)
+        elif agent_type == "qa":
+            agent = QAEngineerAgent(self.mcp_servers)
+        elif agent_type == "devops":
+            agent = DevOpsEngineerAgent(self.mcp_servers)
+        else:
+            raise ValueError(f"Unknown agent type: {agent_type}")
+
+        # Register in active agents
+        self._active_agents[agent_type] = agent
+
+        # Optionally cache for reuse
+        if self.enable_agent_caching:
+            self._agent_cache[agent_type] = agent
+
+        print(f"✅ {agent_type} agent ready ({agent.agent_card.agent_id})")
+        return agent
+
+    async def _cleanup_agent(self, agent_type: str):
+        """
+        Clean up an agent after task completion to free resources
+
+        Args:
+            agent_type: Type of agent to cleanup
+        """
+        if agent_type not in self._active_agents:
+            return
+
+        agent = self._active_agents[agent_type]
+
+        # If caching is enabled, keep the agent but don't clean it up
+        if self.enable_agent_caching:
+            print(f"💾 Keeping {agent_type} agent in cache")
+            return
+
+        # Clean up the agent
+        print(f"🧹 Cleaning up {agent_type} agent...")
+        await agent.cleanup()
+
+        # Unregister from A2A protocol
+        a2a_protocol.unregister_agent(agent.agent_card.agent_id)
+
+        # Remove from active agents
+        del self._active_agents[agent_type]
+
+        print(f"✅ {agent_type} agent cleaned up and resources freed")
+
+    async def _cleanup_all_active_agents(self):
+        """Clean up all currently active agents"""
+        agent_types = list(self._active_agents.keys())
+        for agent_type in agent_types:
+            await self._cleanup_agent(agent_type)
 
     # ==========================================
     # A2A HELPER METHODS
     # ==========================================
+
+    def _get_agent_type_from_id(self, agent_id: str) -> str:
+        """Map agent_id to agent_type"""
+        if "designer" in agent_id:
+            return "designer"
+        elif "frontend" in agent_id:
+            return "frontend"
+        elif "code_reviewer" in agent_id:
+            return "code_reviewer"
+        elif "qa" in agent_id:
+            return "qa"
+        elif "devops" in agent_id:
+            return "devops"
+        else:
+            raise ValueError(f"Unknown agent_id: {agent_id}")
 
     async def _send_task_to_agent(
         self,
         agent_id: str,
         task_description: str,
         metadata: Optional[Dict] = None,
-        priority: str = "medium"
+        priority: str = "medium",
+        cleanup_after: bool = True
     ) -> Dict:
         """
-        Send a task to an agent via A2A protocol
+        Send a task to an agent via A2A protocol with lazy initialization
 
         Args:
             agent_id: Target agent ID
             task_description: Task description
             metadata: Optional metadata (design_spec, etc.)
             priority: Task priority
+            cleanup_after: Whether to cleanup agent after task (default: True)
 
         Returns:
             Task result dict
         """
+        # Determine agent type from ID
+        agent_type = self._get_agent_type_from_id(agent_id)
+
+        # Spin up agent on-demand
+        agent = await self._get_agent(agent_type)
+
+        # Create task
         task = Task(
             description=task_description,
             from_agent=self.orchestrator_id,
-            to_agent=agent_id,
+            to_agent=agent.agent_card.agent_id,  # Use actual agent ID
             priority=priority,
             metadata=metadata
         )
 
+        # Send task via A2A protocol
         response = await a2a_protocol.send_task(
             from_agent_id=self.orchestrator_id,
-            to_agent_id=agent_id,
+            to_agent_id=agent.agent_card.agent_id,
             task=task
         )
+
+        # Clean up agent after task completion (unless disabled)
+        if cleanup_after:
+            await self._cleanup_agent(agent_type)
 
         return response.result
 
     async def _request_review_from_agent(
         self,
         agent_id: str,
-        artifact: Dict
+        artifact: Dict,
+        cleanup_after: bool = True
     ) -> Dict:
         """
-        Request artifact review from an agent via A2A protocol
+        Request artifact review from an agent via A2A protocol with lazy initialization
 
         Args:
             agent_id: Reviewer agent ID
             artifact: Artifact to review
+            cleanup_after: Whether to cleanup agent after review (default: True)
 
         Returns:
             Review feedback dict
         """
+        # Determine agent type from ID
+        agent_type = self._get_agent_type_from_id(agent_id)
+
+        # Spin up agent on-demand
+        agent = await self._get_agent(agent_type)
+
+        # Request review via A2A protocol
         review = await a2a_protocol.request_review(
             from_agent_id=self.orchestrator_id,
-            to_agent_id=agent_id,
+            to_agent_id=agent.agent_card.agent_id,
             artifact=artifact
         )
+
+        # Clean up agent after review (unless disabled)
+        if cleanup_after:
+            await self._cleanup_agent(agent_type)
 
         return review
 
@@ -353,80 +485,84 @@ Please try again or provide more details."""
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
-        # Step 1: Designer creates design specification (A2A)
-        print("\n[Step 1/5] 🎨 Designer creating design specification (A2A)...")
-        design_result = await self._send_task_to_agent(
-            agent_id=self.designer.agent_card.agent_id,
-            task_description=f"Create design specification for: {user_prompt}",
-            priority="high"
-        )
-        design_spec = design_result.get('design_spec', {})
-
-        # Extract design style safely
-        if isinstance(design_spec, dict):
-            design_style = design_spec.get('style', 'modern')
-        else:
-            design_style = 'modern'
-
-        print(f"✓ Design completed via A2A")
-
-        # Step 2: Frontend implements design (A2A)
-        print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
-        impl_result = await self._send_task_to_agent(
-            agent_id=self.frontend.agent_card.agent_id,
-            task_description=f"Implement webapp: {user_prompt}",
-            metadata={"design_spec": design_spec},
-            priority="high"
-        )
-        implementation = impl_result.get('implementation', {})
-        framework = implementation.get('framework', 'react')
-
-        print(f"✓ Implementation completed via A2A: {framework}")
-
-        # Step 3: Quality verification loop - ensure score >= 8/10
-        print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10, via A2A)...".format(self.min_quality_score))
-
-        review_iteration = 0
-        score = 0
-        approved = False
-        current_implementation = implementation
-
-        while review_iteration < self.max_review_iterations:
-            review_iteration += 1
-            print(f"\n   Review iteration {review_iteration}/{self.max_review_iterations}")
-
-            # Designer reviews implementation (A2A)
-            review_artifact = {
-                "original_design": design_spec,
-                "implementation": current_implementation
-            }
-            review = await self._request_review_from_agent(
-                agent_id=self.designer.agent_card.agent_id,
-                artifact=review_artifact
+        try:
+            # Step 1: Designer creates design specification (A2A - keep agent alive for reviews)
+            print("\n[Step 1/5] 🎨 Designer creating design specification (A2A)...")
+            design_result = await self._send_task_to_agent(
+                agent_id=self.DESIGNER_ID,
+                task_description=f"Create design specification for: {user_prompt}",
+                priority="high",
+                cleanup_after=False  # Keep designer alive for review iterations
             )
-            approved = review.get('approved', True)
-            score = review.get('score', 8)
-            feedback = review.get('feedback', [])
+            design_spec = design_result.get('design_spec', {})
 
-            print(f"   Score: {score}/10 - {'✅ Approved' if approved else '⚠️ Needs improvement'}")
+            # Extract design style safely
+            if isinstance(design_spec, dict):
+                design_style = design_spec.get('style', 'modern')
+            else:
+                design_style = 'modern'
 
-            # Check if quality standard is met
-            if score >= self.min_quality_score:
-                print(f"   ✅ Quality standard met! (Score: {score}/10 >= {self.min_quality_score}/10)")
-                break
+            print(f"✓ Design completed via A2A")
 
-            # Quality not met - need improvement
-            if review_iteration >= self.max_review_iterations:
-                print(f"   ⚠️  Max iterations reached - proceeding with current quality (Score: {score}/10)")
-                break
+            # Step 2: Frontend implements design (A2A - keep agent alive for improvements)
+            print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
+            impl_result = await self._send_task_to_agent(
+                agent_id=self.FRONTEND_ID,
+                task_description=f"Implement webapp: {user_prompt}",
+                metadata={"design_spec": design_spec},
+                priority="high",
+                cleanup_after=False  # Keep frontend alive for improvement iterations
+            )
+            implementation = impl_result.get('implementation', {})
+            framework = implementation.get('framework', 'react')
 
-            # Ask Frontend to improve based on feedback (A2A)
-            print(f"   🔧 Quality below standard ({score}/10 < {self.min_quality_score}/10) - requesting improvements (A2A)...")
-            print(f"   📋 Feedback: {', '.join(feedback) if feedback else 'General improvements needed'}")
+            print(f"✓ Implementation completed via A2A: {framework}")
 
-            improvement_result = await self._send_task_to_agent(
-                agent_id=self.frontend.agent_card.agent_id,
-                task_description=f"""Improve the implementation based on design review feedback.
+            # Step 3: Quality verification loop - ensure score >= 8/10
+            print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10, via A2A)...".format(self.min_quality_score))
+
+            review_iteration = 0
+            score = 0
+            approved = False
+            current_implementation = implementation
+
+            while review_iteration < self.max_review_iterations:
+                review_iteration += 1
+                print(f"\n   Review iteration {review_iteration}/{self.max_review_iterations}")
+
+                # Designer reviews implementation (A2A - don't cleanup during loop)
+                review_artifact = {
+                    "original_design": design_spec,
+                    "implementation": current_implementation
+                }
+                review = await self._request_review_from_agent(
+                    agent_id=self.DESIGNER_ID,
+                    artifact=review_artifact,
+                    cleanup_after=False  # Keep designer alive for multiple reviews
+                )
+                approved = review.get('approved', True)
+                score = review.get('score', 8)
+                feedback = review.get('feedback', [])
+
+                print(f"   Score: {score}/10 - {'✅ Approved' if approved else '⚠️ Needs improvement'}")
+
+                # Check if quality standard is met
+                if score >= self.min_quality_score:
+                    print(f"   ✅ Quality standard met! (Score: {score}/10 >= {self.min_quality_score}/10)")
+                    break
+
+                # Quality not met - need improvement
+                if review_iteration >= self.max_review_iterations:
+                    print(f"   ⚠️  Max iterations reached - proceeding with current quality (Score: {score}/10)")
+                    break
+
+                # Ask Frontend to improve based on feedback (A2A - don't cleanup during loop)
+                print(f"   🔧 Quality below standard ({score}/10 < {self.min_quality_score}/10) - requesting improvements (A2A)...")
+                print(f"   📋 Feedback: {', '.join(feedback) if feedback else 'General improvements needed'}")
+
+                improvement_result = await self._send_task_to_agent(
+                    agent_id=self.FRONTEND_ID,
+                    task_description=f"""Improve the implementation based on design review feedback.
 
 Original request: {user_prompt}
 
@@ -434,50 +570,57 @@ Design review score: {score}/10 (Target: {self.min_quality_score}/10)
 Feedback: {', '.join(feedback)}
 
 Please address all feedback and improve the implementation to meet the quality standard.""",
-                metadata={
-                    "design_spec": design_spec,
-                    "previous_implementation": current_implementation,
-                    "review_feedback": feedback,
-                    "review_score": score
-                },
-                priority="high"
+                    metadata={
+                        "design_spec": design_spec,
+                        "previous_implementation": current_implementation,
+                        "review_feedback": feedback,
+                        "review_score": score
+                    },
+                    priority="high",
+                    cleanup_after=False  # Keep frontend alive for multiple improvements
+                )
+                current_implementation = improvement_result.get('implementation', current_implementation)
+                print(f"   ✓ Frontend provided improved implementation via A2A")
+
+            # Use the final implementation (after quality loop)
+            implementation = current_implementation
+
+            print(f"\n✓ Quality verification completed via A2A: Score {score}/10 after {review_iteration} iteration(s)")
+
+            # Step 4: Deploy to Netlify with build verification and retry
+            print("\n[Step 4/5] 🚀 Deploying to Netlify with build verification...")
+            deployment_result = await self._deploy_with_retry(
+                user_prompt=user_prompt,
+                implementation=implementation,
+                design_spec=design_spec
             )
-            current_implementation = improvement_result.get('implementation', current_implementation)
-            print(f"   ✓ Frontend provided improved implementation via A2A")
 
-        # Use the final implementation (after quality loop)
-        implementation = current_implementation
+            deployment_url = deployment_result.get('url', 'https://app.netlify.com/teams')
+            build_attempts = deployment_result.get('attempts', 1)
+            final_implementation = deployment_result.get('final_implementation', implementation)
 
-        print(f"\n✓ Quality verification completed via A2A: Score {score}/10 after {review_iteration} iteration(s)")
+            print(f"✓ Deployed successfully after {build_attempts} attempt(s): {deployment_url}")
 
-        # Step 4: Deploy to Netlify with build verification and retry
-        print("\n[Step 4/5] 🚀 Deploying to Netlify with build verification...")
-        deployment_result = await self._deploy_with_retry(
-            user_prompt=user_prompt,
-            implementation=implementation,
-            design_spec=design_spec
-        )
+            # Step 5: Format response
+            print("\n[Step 5/5] 📱 Formatting WhatsApp response...")
+            response = self._format_whatsapp_response(
+                url=deployment_url,
+                design_style=design_style,
+                framework=framework,
+                review_score=score,
+                build_attempts=build_attempts,
+                review_iterations=review_iteration
+            )
 
-        deployment_url = deployment_result.get('url', 'https://app.netlify.com/teams')
-        build_attempts = deployment_result.get('attempts', 1)
-        final_implementation = deployment_result.get('final_implementation', implementation)
+            print("\n" + "-" * 60)
+            print("✅ [ORCHESTRATOR] Full build complete (A2A Protocol)!\n")
+            return response
 
-        print(f"✓ Deployed successfully after {build_attempts} attempt(s): {deployment_url}")
-
-        # Step 5: Format response
-        print("\n[Step 5/5] 📱 Formatting WhatsApp response...")
-        response = self._format_whatsapp_response(
-            url=deployment_url,
-            design_style=design_style,
-            framework=framework,
-            review_score=score,
-            build_attempts=build_attempts,
-            review_iterations=review_iteration
-        )
-
-        print("\n" + "-" * 60)
-        print("✅ [ORCHESTRATOR] Full build complete (A2A Protocol)!\n")
-        return response
+        finally:
+            # Clean up all agents used in this workflow to free resources
+            print("\n🧹 Cleaning up agents...")
+            await self._cleanup_all_active_agents()
+            print("✓ All agents cleaned up - resources freed")
 
     async def _workflow_bug_fix(self, user_prompt: str, plan: Dict = None) -> str:
         """Bug fix workflow: Frontend fixes code → Deploy (via A2A)"""
@@ -1115,12 +1258,20 @@ Respond in this format:
 """
 
     async def cleanup(self):
-        """Clean up all agents and SDKs"""
-        await self.designer.cleanup()
-        await self.frontend.cleanup()
-        await self.code_reviewer.cleanup()
-        await self.qa_engineer.cleanup()
-        await self.devops.cleanup()
+        """Clean up all agents and SDKs (works with lazy initialization)"""
+        # Clean up any active agents
+        await self._cleanup_all_active_agents()
+
+        # Clean up cached agents if caching is enabled
+        if self.enable_agent_caching and self._agent_cache:
+            print("🧹 Cleaning up cached agents...")
+            for agent_type, agent in list(self._agent_cache.items()):
+                await agent.cleanup()
+                a2a_protocol.unregister_agent(agent.agent_card.agent_id)
+            self._agent_cache.clear()
+
+        # Clean up SDKs
         await self.deployment_sdk.close()
         await self.planner_sdk.close()
+
         print("🧹 [ORCHESTRATOR] Cleaned up all agents, deployment SDK, and planner SDK")

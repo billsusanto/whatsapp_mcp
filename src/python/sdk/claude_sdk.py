@@ -101,13 +101,13 @@ IMPORTANT:
 
         self.system_prompt = base_prompt
 
-        self.model = "claude-3-5-sonnet-20241022"
+        self.model = "claude-sonnet-4-5-20250929"
         # Reduce max_tokens to 2048 (from default 4096) to save memory
         self.max_tokens = 2048
         self.available_mcp_servers = available_mcp_servers or {}
         self.client = None
 
-        print(f"Claude SDK initialized with model: {self.model}")
+        print(f"Claude SDK initialized with model: {self.model} (Sonnet 4.5)")
         print(f"Max tokens: {self.max_tokens} (memory optimized)")
         print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
 
@@ -151,6 +151,8 @@ IMPORTANT:
             options = None
             if mcp_servers:
                 options = ClaudeAgentOptions(
+                    model=self.model,  # Use Claude Sonnet 4.5
+                    max_tokens=self.max_tokens,
                     mcp_servers=mcp_servers,
                     allowed_tools=allowed_tools,
                     permission_mode='bypassPermissions',  # Auto-approve all tool usage
@@ -159,13 +161,21 @@ IMPORTANT:
                 print(f"Total MCP servers: {len(mcp_servers)}")
                 print(f"Allowed tools: {allowed_tools}")
                 print(f"Permission mode: bypassPermissions")
+            else:
+                # No MCP servers, but still need to specify model
+                options = ClaudeAgentOptions(
+                    model=self.model,  # Use Claude Sonnet 4.5
+                    max_tokens=self.max_tokens,
+                    system_prompt=self.system_prompt
+                )
 
             # Initialize client with options
             try:
                 self.client = ClaudeSDKClient(options=options)
                 await self.client.__aenter__()
                 print("✅ Claude SDK client initialized successfully")
-                print(f"   Active MCP servers: {list(mcp_servers.keys())}")
+                print(f"   Model: {self.model} (Sonnet 4.5)")
+                print(f"   Active MCP servers: {list(mcp_servers.keys()) if mcp_servers else 'None'}")
             except Exception as e:
                 print(f"❌ Error initializing Claude SDK client: {e}")
                 import traceback

@@ -4,7 +4,7 @@
 import asyncio
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src', 'python'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 
 from agents.collaborative.a2a_protocol import a2a_protocol
 from agents.collaborative.models import (

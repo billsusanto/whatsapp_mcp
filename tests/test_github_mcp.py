@@ -23,7 +23,7 @@ import sys
 from dotenv import load_dotenv
 
 # Add src/python to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src', 'python'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 
 from agents.manager import AgentManager
 from claude_agent_sdk import tool

@@ -16,7 +16,7 @@ sys.dont_write_bytecode = True
 import mcp.types
 
 # Add src/python to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src', 'python'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 
 from claude_agent_sdk import tool
 from sdk.claude_sdk import ClaudeSDK
@@ -89,7 +89,7 @@ async def test_in_docker():
     try:
         claude_sdk = ClaudeSDK(
             system_prompt="You are a helpful assistant with access to tools.",
-            tools=[get_weather_tool, calculate_tool]
+            available_mcp_servers={"test_tools": [get_weather_tool, calculate_tool]}
         )
         print("✅ Claude SDK initialized")
     except Exception as e:
