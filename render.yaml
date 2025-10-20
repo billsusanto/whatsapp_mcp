@@ -33,6 +33,24 @@ services:
       - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
         sync: false  # Set manually (REQUIRED)
 
+      # GitHub MCP Integration
+      - key: GITHUB_PERSONAL_ACCESS_TOKEN
+        sync: false  # Set manually (OPTIONAL - for GitHub MCP)
+
+      - key: ENABLE_GITHUB_MCP
+        value: true  # Enable GitHub MCP server integration
+
+      # Netlify MCP Integration
+      - key: NETLIFY_PERSONAL_ACCESS_TOKEN
+        sync: false  # Set manually (OPTIONAL - for Netlify MCP)
+
+      - key: ENABLE_NETLIFY_MCP
+        value: true  # Enable Netlify MCP server integration
+
+      # Agent System Prompt
+      - key: AGENT_SYSTEM_PROMPT
+        value: "You are a professional CTO (Chief Technology Officer) assistant. You help users with technical architecture, code review, technology recommendations, team leadership, product development, technical debt management, and DevOps guidance. Respond professionally, concisely, and with practical technical insights."
+
       # Service configuration
       - key: PORT
         value: 8000  # Default port (Render may override)
@@ -46,14 +64,19 @@ services:
 #
 # This configuration deploys ONE service to Render that contains:
 # 1. Python Claude Agent SDK Manager (FastAPI)
-# 2. WhatsApp MCP server (exposes WhatsApp tools)
-# 3. Agent spawning and management
+# 2. WhatsApp MCP server (messaging tools)
+# 3. GitHub MCP server (repository management)
+# 4. Netlify MCP server (site deployment and management)
+# 5. Agent spawning and conversation management
 #
-# ARCHITECTURE (per your diagram):
+# ARCHITECTURE:
 # - WhatsApp User sends message
 # - Webhook POST -> Render FastAPI service
-# - Python Claude Agent SDK Manager spawns agents
-# - Agents use MCP tools (WhatsApp MCP)
+# - Python Claude Agent SDK Manager spawns/retrieves agent per user
+# - Agents use multiple MCP tools:
+#   • WhatsApp MCP: Send messages back to users
+#   • GitHub MCP: List/search/manage GitHub repositories
+#   • Netlify MCP: Deploy sites, manage deployments, configure settings
 # - Response sent back via WhatsApp API
 #
 # SETUP STEPS:
@@ -62,7 +85,16 @@ services:
 # 3. Click "New" -> "Web Service"
 # 4. Connect your GitHub repo
 # 5. Render will use this render.yaml Blueprint
-# 6. Set environment variables in Render dashboard
+# 6. Set environment variables in Render dashboard:
+#    REQUIRED:
+#      - ANTHROPIC_API_KEY
+#      - WHATSAPP_ACCESS_TOKEN
+#      - WHATSAPP_PHONE_NUMBER_ID
+#      - WHATSAPP_WEBHOOK_VERIFY_TOKEN
+#    OPTIONAL (for GitHub MCP):
+#      - GITHUB_PERSONAL_ACCESS_TOKEN
+#    OPTIONAL (for Netlify MCP):
+#      - NETLIFY_PERSONAL_ACCESS_TOKEN
 # 7. Deploy!
 #
 # YOUR SERVICE URL:
@@ -74,5 +106,10 @@ services:
 # 3. Set verify token: (same as WHATSAPP_WEBHOOK_VERIFY_TOKEN)
 # 4. Subscribe to 'messages' events
 # 5. Test by sending a message to your WhatsApp Business number
+#
+# MCP CAPABILITIES:
+# - GitHub: Create repos, search code, manage issues/PRs, create files
+# - Netlify: Deploy sites from GitHub, manage deployments, configure env vars
+# - WhatsApp: Send messages to users
 #
 # ==========================================
