@@ -102,10 +102,13 @@ IMPORTANT:
         self.system_prompt = base_prompt
 
         self.model = "claude-3-5-sonnet-20241022"
+        # Reduce max_tokens to 2048 (from default 4096) to save memory
+        self.max_tokens = 2048
         self.available_mcp_servers = available_mcp_servers or {}
         self.client = None
 
         print(f"Claude SDK initialized with model: {self.model}")
+        print(f"Max tokens: {self.max_tokens} (memory optimized)")
         print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
 
     async def initialize_client(self):

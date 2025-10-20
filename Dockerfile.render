@@ -1,9 +1,11 @@
 # ============================================
 # Dockerfile for Python Agent SDK Service
 # Deployment: Render (Claude Agent SDK for WhatsApp)
+# Multi-stage build for memory optimization
 # ============================================
 
-FROM python:3.11-slim
+# Stage 1: Builder (installs build dependencies)
+FROM python:3.11-slim AS builder
 
 # ============================================
 # System Setup
@@ -40,22 +42,62 @@ RUN useradd -m -u 1001 agentuser
 # Copy requirements.txt first (for Docker layer caching)
 COPY requirements.txt .
 
-# Upgrade pip and install Python packages
+# Upgrade pip and install Python packages (use wheel cache for faster builds)
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
 # ============================================
-# Copy Application Code
+# Stage 2: Runtime (minimal image)
 # ============================================
-# Copy Python source code
-COPY src/python/ ./src/python/
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Install ONLY runtime dependencies (no build tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gnupg \
+    git \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Install NPM packages globally with minimal cache
+RUN npm install -g --production \
+    @anthropic-ai/claude-code \
+    @modelcontextprotocol/server-github \
+    @netlify/mcp \
+    && npm cache clean --force \
+    && echo "✓ Installed MCP packages successfully"
+
+# Copy Python wheels from builder and install
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
+    && rm -rf /wheels
+
+# Create non-root user
+RUN useradd -m -u 1001 agentuser
+
+# Copy application code
+COPY --chown=agentuser:agentuser src/python/ ./src/python/
+
+# Switch to non-root user
+USER agentuser
 
 # ============================================
 # Environment Variables (Set in Render Dashboard)
 # ============================================
 # - ANTHROPIC_API_KEY (required)
-# - WHATSAPP_ACCESS_TOKEN (optional, for MCP server)
-# - WHATSAPP_PHONE_NUMBER_ID (optional, for MCP server)
+# - WHATSAPP_ACCESS_TOKEN (required)
+# - WHATSAPP_PHONE_NUMBER_ID (required)
+# - WHATSAPP_WEBHOOK_VERIFY_TOKEN (required)
+# - GITHUB_PERSONAL_ACCESS_TOKEN (optional)
+# - NETLIFY_PERSONAL_ACCESS_TOKEN (optional)
 # - PORT (automatically set by Render, defaults to 8000)
 
 # ============================================
@@ -70,12 +112,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # ============================================
-# Switch to non-root user
-# ============================================
-RUN chown -R agentuser:agentuser /app
-USER agentuser
-
-# ============================================
 # Start FastAPI Agent Service
 # ============================================
-CMD ["python", "src/python/main.py"]
+CMD ["python", "-u", "src/python/main.py"]

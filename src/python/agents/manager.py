@@ -25,7 +25,8 @@ class AgentManager:
             enable_github: Whether to enable GitHub MCP integration
             enable_netlify: Whether to enable Netlify MCP integration
         """
-        self.session_manager = SessionManager()
+        # Reduce TTL to 15 minutes (was 30) and max history to 10 (was 20) for memory optimization
+        self.session_manager = SessionManager(ttl_minutes=15, max_history=10)
         self.agents: Dict[str, Agent] = {}
 
         # Build available MCP servers dict

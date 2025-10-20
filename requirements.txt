@@ -36,31 +36,6 @@ uvicorn[standard]>=0.24.0
 mcp>=1.18.0
 
 # ============================================
-# GitHub MCP Integration (Optional for validation)
-# ============================================
-
-# For GitHub token validation in github_mcp/server.py
-# Note: The actual GitHub MCP runs via npx (Node.js), not Python
-# We only use requests for token validation
-# (requests is already included above)
-
-# ============================================
-# Netlify MCP Integration (Optional for validation)
-# ============================================
-
-# For Netlify token validation in netlify_mcp/server.py
-# Note: The actual Netlify MCP runs via npx (Node.js), not Python
-# We only use requests for token validation
-# (requests is already included above)
-
-# ============================================
-# Optional: Session Management
-# ============================================
-
-# Redis (optional - for production session storage)
-# redis>=5.0.0
-
-# ============================================
 # Development & Testing
 # ============================================
 

@@ -171,6 +171,29 @@ async def process_whatsapp_message(phone_number: str, message: str):
             print(f"❌ Failed to send error message: {str(send_error)}")
 
 
+async def periodic_cleanup():
+    """
+    Background task for periodic cleanup of expired sessions and agents
+    Runs every 10 minutes to prevent memory leaks
+    """
+    while True:
+        try:
+            await asyncio.sleep(600)  # Run every 10 minutes
+
+            print("🧹 Running periodic cleanup...")
+
+            # Cleanup expired sessions
+            expired_count = agent_manager.cleanup_expired_sessions()
+
+            # Get current state
+            active_agents = agent_manager.get_active_agents_count()
+
+            print(f"✓ Cleanup complete - Expired sessions: {expired_count}, Active agents: {active_agents}")
+
+        except Exception as e:
+            print(f"❌ Error in periodic cleanup: {str(e)}")
+
+
 @app.post("/agent/process", response_model=MessageResponse)
 async def process_message(request: MessageRequest):
     """
@@ -232,6 +255,9 @@ async def startup_event():
     print(f"GITHUB_PERSONAL_ACCESS_TOKEN configured: {bool(os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'))}")
     print(f"\nAvailable MCP servers: {list(agent_manager.available_mcp_servers.keys())}")
     print("=" * 60)
+
+    # Start background task for periodic cleanup
+    asyncio.create_task(periodic_cleanup())
 
 
 @app.on_event("shutdown")

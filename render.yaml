@@ -6,7 +6,10 @@ services:
   - type: web
     name: whatsapp-mcp
     runtime: docker
-    plan: starter  # $7/month - use 'free' for free tier (spins down after 15 min)
+    # Use starter plan ($7/month) for 512MB RAM
+    # Free tier (512MB) has spin-down delays which cause timeouts with MCP servers
+    # If memory issues persist, upgrade to standard ($25/month) for 2GB RAM
+    plan: starter
     region: oregon # or 'frankfurt', 'singapore'
 
     # Docker configuration
