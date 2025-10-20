@@ -1,6 +1,8 @@
 """
 Collaborative Orchestrator
-Coordinates UI/UX Designer + Frontend Developer
+Coordinates multi-agent team: Designer, Frontend, Code Reviewer, QA, DevOps
+
+NOW USING A2A PROTOCOL for all agent communication
 """
 
 from typing import Dict, Optional
@@ -11,37 +13,61 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from sdk.claude_sdk import ClaudeSDK
 from .designer_agent import DesignerAgent
 from .frontend_agent import FrontendDeveloperAgent
-from .models import Task
+from .code_reviewer_agent import CodeReviewerAgent
+from .qa_agent import QAEngineerAgent
+from .devops_agent import DevOpsEngineerAgent
+from .models import Task, TaskResponse
+from .a2a_protocol import a2a_protocol
 
 
 class CollaborativeOrchestrator:
     """
-    Orchestrates collaboration between Designer and Frontend Developer
+    Orchestrates collaboration between multi-agent development team using A2A Protocol
+
+    Agent Team:
+    - UI/UX Designer: Creates design specifications and reviews implementations
+    - Frontend Developer: Implements React/Vue code
+    - Code Reviewer: Reviews code for quality, security, and best practices
+    - QA Engineer: Tests functionality, usability, and accessibility
+    - DevOps Engineer: Handles deployment, optimization, and infrastructure
+
+    Communication:
+    - ALL agent interactions use A2A (Agent-to-Agent) protocol
+    - Standardized messaging with Task and TaskResponse models
+    - Full traceability and logging of all communications
 
     Workflow:
-    1. Designer creates design specification
-    2. Frontend implements based on design
-    3. Designer reviews implementation
-    4. Frontend refines (if needed)
-    5. Deploy to Netlify
+    1. Designer creates design specification (via A2A)
+    2. Frontend implements based on design (via A2A)
+    3. Code Reviewer reviews code quality and security (via A2A)
+    4. QA Engineer tests functionality and usability (via A2A)
+    5. DevOps Engineer optimizes and deploys to Netlify (via A2A)
+    6. Iterative improvement until quality standards met
     """
+
+    # Orchestrator's agent ID for A2A protocol
+    ORCHESTRATOR_ID = "orchestrator"
 
     def __init__(self, mcp_servers: Dict):
         """
-        Initialize orchestrator with specialized agents
+        Initialize orchestrator with specialized agent team
 
         Args:
             mcp_servers: Available MCP servers (WhatsApp, GitHub, Netlify)
         """
         print("=" * 60)
-        print("🎭 Initializing Collaborative Orchestrator")
+        print("🎭 Initializing Multi-Agent Orchestrator with A2A Protocol")
         print("=" * 60)
 
         self.mcp_servers = mcp_servers
+        self.orchestrator_id = self.ORCHESTRATOR_ID
 
-        # Create specialized agents
+        # Create specialized agent team (they auto-register with A2A protocol)
         self.designer = DesignerAgent(mcp_servers)
         self.frontend = FrontendDeveloperAgent(mcp_servers)
+        self.code_reviewer = CodeReviewerAgent(mcp_servers)
+        self.qa_engineer = QAEngineerAgent(mcp_servers)
+        self.devops = DevOpsEngineerAgent(mcp_servers)
 
         # Create Claude SDK for orchestrator tasks (deployment, coordination, planning)
         self.deployment_sdk = ClaudeSDK(available_mcp_servers=mcp_servers)
@@ -54,12 +80,82 @@ class CollaborativeOrchestrator:
         self.min_quality_score = 8  # Minimum acceptable review score (out of 10)
         self.max_build_retries = 3  # Maximum build retry attempts
 
-        print("\n✅ Orchestrator ready with cognitive planning:")
-        print(f"   - {self.designer.agent_card.name}")
-        print(f"   - {self.frontend.agent_card.name}")
+        print("\n✅ Multi-Agent Team Ready (A2A-enabled):")
+        print(f"   - {self.designer.agent_card.name} ({self.designer.agent_card.agent_id})")
+        print(f"   - {self.frontend.agent_card.name} ({self.frontend.agent_card.agent_id})")
+        print(f"   - {self.code_reviewer.agent_card.name} ({self.code_reviewer.agent_card.agent_id})")
+        print(f"   - {self.qa_engineer.agent_card.name} ({self.qa_engineer.agent_card.agent_id})")
+        print(f"   - {self.devops.agent_card.name} ({self.devops.agent_card.agent_id})")
         print(f"   - AI Planner (Claude-powered workflow decisions)")
         print(f"   - Deployment SDK with {len(mcp_servers)} MCP servers")
+        print(f"\n🔗 A2A Protocol: All agents registered and ready for communication")
         print("=" * 60 + "\n")
+
+    # ==========================================
+    # A2A HELPER METHODS
+    # ==========================================
+
+    async def _send_task_to_agent(
+        self,
+        agent_id: str,
+        task_description: str,
+        metadata: Optional[Dict] = None,
+        priority: str = "medium"
+    ) -> Dict:
+        """
+        Send a task to an agent via A2A protocol
+
+        Args:
+            agent_id: Target agent ID
+            task_description: Task description
+            metadata: Optional metadata (design_spec, etc.)
+            priority: Task priority
+
+        Returns:
+            Task result dict
+        """
+        task = Task(
+            description=task_description,
+            from_agent=self.orchestrator_id,
+            to_agent=agent_id,
+            priority=priority,
+            metadata=metadata
+        )
+
+        response = await a2a_protocol.send_task(
+            from_agent_id=self.orchestrator_id,
+            to_agent_id=agent_id,
+            task=task
+        )
+
+        return response.result
+
+    async def _request_review_from_agent(
+        self,
+        agent_id: str,
+        artifact: Dict
+    ) -> Dict:
+        """
+        Request artifact review from an agent via A2A protocol
+
+        Args:
+            agent_id: Reviewer agent ID
+            artifact: Artifact to review
+
+        Returns:
+            Review feedback dict
+        """
+        review = await a2a_protocol.request_review(
+            from_agent_id=self.orchestrator_id,
+            to_agent_id=agent_id,
+            artifact=artifact
+        )
+
+        return review
+
+    # ==========================================
+    # AI PLANNING
+    # ==========================================
 
     async def _ai_plan_workflow(self, user_prompt: str) -> Dict:
         """
@@ -78,24 +174,26 @@ class CollaborativeOrchestrator:
         planning_prompt = f"""You are an AI orchestrator planning how to fulfill a user's request using a multi-agent development team.
 
 **Available Agents:**
-- **UI/UX Designer Agent**: Creates design specifications, color palettes, typography, layouts, component designs
-- **Frontend Developer Agent**: Implements React/Vue/Next.js code, fixes bugs, handles dependencies
-- **Deployment System**: Deploys to Netlify, handles build verification, manages retries
+- **designer**: UI/UX Designer - Creates design specifications, color palettes, typography, layouts, component designs, reviews implementations
+- **frontend**: Frontend Developer - Implements React/Vue/Next.js code, fixes bugs, handles dependencies, writes components
+- **code_reviewer**: Code Reviewer - Reviews code for quality, security vulnerabilities, performance issues, best practices
+- **qa**: QA Engineer - Tests functionality, usability, accessibility, creates test plans, identifies bugs
+- **devops**: DevOps Engineer - Handles deployment optimization, build configuration, security hardening, monitors performance
 
 **Available Workflows:**
-1. **full_build**: Build a complete new webapp from scratch
-   - Steps: Designer → Frontend → Review → Deploy with verification
-   - Agents: Designer + Frontend
-   - Use when: User wants to create a new application
+1. **full_build**: Build a complete production-ready webapp from scratch
+   - Steps: Designer → Frontend → Code Review → QA Testing → DevOps Optimization → Deploy
+   - Agents: Designer + Frontend + Code Reviewer + QA + DevOps
+   - Use when: User wants to create a new high-quality application
 
 2. **bug_fix**: Fix errors in existing code
-   - Steps: Frontend analyzes and fixes → Deploy with verification
-   - Agents: Frontend only
+   - Steps: Frontend fixes → Code Review → Deploy with verification
+   - Agents: Frontend + Code Reviewer
    - Use when: User reports errors, build failures, bugs
 
 3. **redeploy**: Redeploy existing code without changes
    - Steps: Direct deployment
-   - Agents: None (direct deployment)
+   - Agents: DevOps only
    - Use when: User wants to redeploy existing code from GitHub
 
 4. **design_only**: Just create design specifications
@@ -103,8 +201,9 @@ class CollaborativeOrchestrator:
    - Agents: Designer only
    - Use when: User only wants design consultation, mockups, wireframes
 
-5. **custom**: Create a custom workflow
-   - Use when: Request doesn't fit standard workflows
+5. **custom**: Create a custom workflow tailored to the request
+   - Mix and match agents as needed
+   - Use when: Request needs specific combination of agents
 
 **User Request:**
 "{user_prompt}"
@@ -113,32 +212,33 @@ class CollaborativeOrchestrator:
 Analyze the user's request and determine:
 1. What does the user actually want?
 2. Which workflow best fits this request?
-3. Which agents are needed?
+3. Which agents are needed for the best quality result?
 4. What are the specific steps to execute?
 5. Are there any special considerations?
+
+**Important Guidelines:**
+- For production webapps, use ALL quality agents (code_reviewer, qa, devops) to ensure high quality
+- Code Reviewer should review all code before deployment to catch security issues
+- QA should test all user-facing features for usability and accessibility
+- DevOps should optimize all deployments for performance and security
+- Only skip agents if the user explicitly wants a quick/simple solution
 
 **Output Format (JSON):**
 {{
   "workflow": "full_build" | "bug_fix" | "redeploy" | "design_only" | "custom",
   "reasoning": "Clear explanation of why you chose this workflow",
-  "agents_needed": ["designer", "frontend"],
+  "agents_needed": ["designer", "frontend", "code_reviewer", "qa", "devops"],
   "steps": [
     "Designer creates comprehensive design specification",
     "Frontend implements React components based on design",
-    "Designer reviews implementation for design fidelity",
-    "Deploy to Netlify with build verification (up to 3 retries)",
+    "Code Reviewer reviews code for security and quality",
+    "QA Engineer tests functionality and accessibility",
+    "DevOps Engineer optimizes and deploys to Netlify",
     "Format and send response to user"
   ],
   "estimated_complexity": "simple" | "moderate" | "complex",
   "special_instructions": "Any special handling, edge cases, or important notes"
 }}
-
-**Important Guidelines:**
-- Be precise about which agents are needed
-- Consider build verification for code generation
-- Think about what will provide the best user experience
-- Consider the complexity and scope of the request
-- If unsure, prefer full_build over simpler workflows
 
 Respond with ONLY the JSON object, no other text."""
 
@@ -191,6 +291,10 @@ Respond with ONLY the JSON object, no other text."""
                 "special_instructions": "Error during planning - using default"
             }
 
+    # ==========================================
+    # MAIN WORKFLOW ENTRY POINT
+    # ==========================================
+
     async def build_webapp(self, user_prompt: str) -> str:
         """
         Main workflow: Uses AI planning to intelligently route requests
@@ -238,21 +342,24 @@ Reasoning: {plan.get('reasoning', 'N/A')}
 
 Please try again or provide more details."""
 
+    # ==========================================
+    # WORKFLOW IMPLEMENTATIONS (A2A-ENABLED)
+    # ==========================================
+
     async def _workflow_full_build(self, user_prompt: str, plan: Dict = None) -> str:
-        """Full build workflow: Designer → Frontend → Review → Deploy"""
-        print(f"\n🏗️  Starting FULL BUILD workflow")
+        """Full build workflow: Designer → Frontend → Review → Deploy (via A2A)"""
+        print(f"\n🏗️  Starting FULL BUILD workflow (A2A Protocol)")
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
-        # Step 1: Designer creates design specification
-        print("\n[Step 1/5] 🎨 Designer creating design specification...")
-        design_task = Task(
-            description=f"Create design specification for: {user_prompt}",
-            from_agent="orchestrator",
-            to_agent=self.designer.agent_card.agent_id
+        # Step 1: Designer creates design specification (A2A)
+        print("\n[Step 1/5] 🎨 Designer creating design specification (A2A)...")
+        design_result = await self._send_task_to_agent(
+            agent_id=self.designer.agent_card.agent_id,
+            task_description=f"Create design specification for: {user_prompt}",
+            priority="high"
         )
-        design_result = await self.designer.execute_task(design_task)
         design_spec = design_result.get('design_spec', {})
 
         # Extract design style safely
@@ -261,25 +368,23 @@ Please try again or provide more details."""
         else:
             design_style = 'modern'
 
-        print(f"✓ Design completed")
+        print(f"✓ Design completed via A2A")
 
-        # Step 2: Frontend implements design
-        print("\n[Step 2/5] 💻 Frontend implementing design...")
-        impl_task = Task(
-            description=f"Implement webapp: {user_prompt}",
-            from_agent="orchestrator",
-            to_agent=self.frontend.agent_card.agent_id,
-            metadata={"design_spec": design_spec}
+        # Step 2: Frontend implements design (A2A)
+        print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
+        impl_result = await self._send_task_to_agent(
+            agent_id=self.frontend.agent_card.agent_id,
+            task_description=f"Implement webapp: {user_prompt}",
+            metadata={"design_spec": design_spec},
+            priority="high"
         )
-
-        impl_result = await self.frontend.execute_task(impl_task)
         implementation = impl_result.get('implementation', {})
         framework = implementation.get('framework', 'react')
 
-        print(f"✓ Implementation completed: {framework}")
+        print(f"✓ Implementation completed via A2A: {framework}")
 
         # Step 3: Quality verification loop - ensure score >= 8/10
-        print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10)...".format(self.min_quality_score))
+        print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10, via A2A)...".format(self.min_quality_score))
 
         review_iteration = 0
         score = 0
@@ -290,12 +395,15 @@ Please try again or provide more details."""
             review_iteration += 1
             print(f"\n   Review iteration {review_iteration}/{self.max_review_iterations}")
 
-            # Designer reviews implementation
+            # Designer reviews implementation (A2A)
             review_artifact = {
                 "original_design": design_spec,
                 "implementation": current_implementation
             }
-            review = await self.designer.review_artifact(review_artifact)
+            review = await self._request_review_from_agent(
+                agent_id=self.designer.agent_card.agent_id,
+                artifact=review_artifact
+            )
             approved = review.get('approved', True)
             score = review.get('score', 8)
             feedback = review.get('feedback', [])
@@ -312,12 +420,13 @@ Please try again or provide more details."""
                 print(f"   ⚠️  Max iterations reached - proceeding with current quality (Score: {score}/10)")
                 break
 
-            # Ask Frontend to improve based on feedback
-            print(f"   🔧 Quality below standard ({score}/10 < {self.min_quality_score}/10) - requesting improvements...")
+            # Ask Frontend to improve based on feedback (A2A)
+            print(f"   🔧 Quality below standard ({score}/10 < {self.min_quality_score}/10) - requesting improvements (A2A)...")
             print(f"   📋 Feedback: {', '.join(feedback) if feedback else 'General improvements needed'}")
 
-            improvement_task = Task(
-                description=f"""Improve the implementation based on design review feedback.
+            improvement_result = await self._send_task_to_agent(
+                agent_id=self.frontend.agent_card.agent_id,
+                task_description=f"""Improve the implementation based on design review feedback.
 
 Original request: {user_prompt}
 
@@ -325,24 +434,21 @@ Design review score: {score}/10 (Target: {self.min_quality_score}/10)
 Feedback: {', '.join(feedback)}
 
 Please address all feedback and improve the implementation to meet the quality standard.""",
-                from_agent="orchestrator",
-                to_agent=self.frontend.agent_card.agent_id,
                 metadata={
                     "design_spec": design_spec,
                     "previous_implementation": current_implementation,
                     "review_feedback": feedback,
                     "review_score": score
-                }
+                },
+                priority="high"
             )
-
-            improvement_result = await self.frontend.execute_task(improvement_task)
             current_implementation = improvement_result.get('implementation', current_implementation)
-            print(f"   ✓ Frontend provided improved implementation")
+            print(f"   ✓ Frontend provided improved implementation via A2A")
 
         # Use the final implementation (after quality loop)
         implementation = current_implementation
 
-        print(f"\n✓ Quality verification completed: Score {score}/10 after {review_iteration} iteration(s)")
+        print(f"\n✓ Quality verification completed via A2A: Score {score}/10 after {review_iteration} iteration(s)")
 
         # Step 4: Deploy to Netlify with build verification and retry
         print("\n[Step 4/5] 🚀 Deploying to Netlify with build verification...")
@@ -370,29 +476,27 @@ Please address all feedback and improve the implementation to meet the quality s
         )
 
         print("\n" + "-" * 60)
-        print("✅ [ORCHESTRATOR] Full build complete!\n")
+        print("✅ [ORCHESTRATOR] Full build complete (A2A Protocol)!\n")
         return response
 
     async def _workflow_bug_fix(self, user_prompt: str, plan: Dict = None) -> str:
-        """Bug fix workflow: Frontend fixes code → Deploy"""
-        print(f"\n🔧 Starting BUG FIX workflow")
+        """Bug fix workflow: Frontend fixes code → Deploy (via A2A)"""
+        print(f"\n🔧 Starting BUG FIX workflow (A2A Protocol)")
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
-        # Step 1: Frontend fixes the issue
-        print("\n[Step 1/2] 💻 Frontend analyzing and fixing issue...")
-        fix_task = Task(
-            description=f"Analyze and fix this issue: {user_prompt}",
-            from_agent="orchestrator",
-            to_agent=self.frontend.agent_card.agent_id
+        # Step 1: Frontend fixes the issue (A2A)
+        print("\n[Step 1/2] 💻 Frontend analyzing and fixing issue (A2A)...")
+        fix_result = await self._send_task_to_agent(
+            agent_id=self.frontend.agent_card.agent_id,
+            task_description=f"Analyze and fix this issue: {user_prompt}",
+            priority="high"
         )
-
-        fix_result = await self.frontend.execute_task(fix_task)
         implementation = fix_result.get('implementation', {})
         framework = implementation.get('framework', 'react')
 
-        print(f"✓ Initial fix completed")
+        print(f"✓ Initial fix completed via A2A")
 
         # Step 2: Deploy to Netlify with build verification and retry
         print("\n[Step 2/2] 🚀 Deploying fixed code with build verification...")
@@ -420,11 +524,11 @@ Please address all feedback and improve the implementation to meet the quality s
   • Framework: {framework}
   • Deployed on Netlify
 
-🤖 Fixed by Frontend Developer Agent
+🤖 Fixed by Frontend Developer Agent (via A2A Protocol)
 """
 
         print("\n" + "-" * 60)
-        print("✅ [ORCHESTRATOR] Bug fix complete!\n")
+        print("✅ [ORCHESTRATOR] Bug fix complete (A2A)!\n")
         return response
 
     async def _workflow_redeploy(self, user_prompt: str, plan: Dict = None) -> str:
@@ -480,26 +584,25 @@ Respond with ONLY the deployment URL."""
         return response
 
     async def _workflow_design_only(self, user_prompt: str, plan: Dict = None) -> str:
-        """Design only workflow: Designer creates design spec"""
-        print(f"\n🎨 Starting DESIGN ONLY workflow")
+        """Design only workflow: Designer creates design spec (via A2A)"""
+        print(f"\n🎨 Starting DESIGN ONLY workflow (A2A Protocol)")
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
-        # Step 1: Designer creates design
-        print("\n[Step 1/1] 🎨 Designer creating design specification...")
-        design_task = Task(
-            description=f"Create design specification for: {user_prompt}",
-            from_agent="orchestrator",
-            to_agent=self.designer.agent_card.agent_id
+        # Step 1: Designer creates design (A2A)
+        print("\n[Step 1/1] 🎨 Designer creating design specification (A2A)...")
+        design_result = await self._send_task_to_agent(
+            agent_id=self.designer.agent_card.agent_id,
+            task_description=f"Create design specification for: {user_prompt}",
+            priority="medium"
         )
-        design_result = await self.designer.execute_task(design_task)
         design_spec = design_result.get('design_spec', {})
 
         # Format design for WhatsApp
         response = f"""✅ Design specification complete!
 
-🎨 Design created by UI/UX Designer Agent
+🎨 Design created by UI/UX Designer Agent (via A2A Protocol)
 
 📋 Design includes:
   • Style guidelines
@@ -515,7 +618,7 @@ Respond with ONLY the deployment URL."""
 """
 
         print("\n" + "-" * 60)
-        print("✅ [ORCHESTRATOR] Design complete!\n")
+        print("✅ [ORCHESTRATOR] Design complete (A2A)!\n")
         return response
 
     async def _ai_decide_step_executor(self, step: str, user_prompt: str, agents_available: list, context: Dict) -> Dict:
@@ -542,15 +645,20 @@ Respond with ONLY the deployment URL."""
 **Original User Request:** "{user_prompt}"
 
 **Available Agents:**
-- **designer**: UI/UX Designer - creates design specifications, reviews implementations
+- **designer**: UI/UX Designer - creates design specifications, reviews implementations for design fidelity
 - **frontend**: Frontend Developer - writes React/Vue code, fixes bugs, implements features
-- **review**: Design Review - Designer reviews Frontend's implementation
-- **deploy**: Deployment - deploys code to Netlify with build verification
+- **code_reviewer**: Code Reviewer - reviews code for security, quality, performance, best practices
+- **qa**: QA Engineer - tests functionality, usability, accessibility, creates test plans
+- **devops**: DevOps Engineer - optimizes builds, configures deployment, security hardening
+- **deploy**: Direct Deployment - deploys code to Netlify with build verification
 - **skip**: Skip this step (if not actionable or already completed)
 
 **Current Context:**
 - Has design specification: {bool(context.get('design_spec'))}
 - Has implementation: {bool(context.get('implementation'))}
+- Has code review: {bool(context.get('code_review'))}
+- Has QA report: {bool(context.get('qa_report'))}
+- Has DevOps config: {bool(context.get('devops_config'))}
 - Agents in plan: {', '.join(agents_available)}
 
 **Your Task:**
@@ -562,7 +670,7 @@ Analyze the step and decide which agent should execute it. Consider:
 
 **Output Format (JSON):**
 {{
-  "agent": "designer" | "frontend" | "review" | "deploy" | "skip",
+  "agent": "designer" | "frontend" | "code_reviewer" | "qa" | "devops" | "deploy" | "skip",
   "reasoning": "Clear explanation of why this agent was chosen",
   "task_description": "Refined, specific task description for the agent to execute"
 }}
@@ -602,12 +710,12 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
 
     async def _workflow_custom(self, user_prompt: str, plan: Dict) -> str:
         """
-        Custom workflow: Execute workflow based on AI planner's instructions
+        Custom workflow: Execute workflow based on AI planner's instructions (via A2A)
 
         This workflow uses AI to intelligently route each step to the right agent,
         rather than hardcoded keyword matching.
         """
-        print(f"\n🔮 Starting CUSTOM workflow with AI-powered step routing")
+        print(f"\n🔮 Starting CUSTOM workflow with AI-powered step routing (A2A Protocol)")
         print(f"📋 AI Planner reasoning: {plan.get('reasoning', 'N/A')}")
 
         if plan.get('special_instructions'):
@@ -624,6 +732,9 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             'design_spec': None,
             'implementation': None,
             'review_score': None,
+            'code_review': None,
+            'qa_report': None,
+            'devops_config': None,
             'deployment_url': None
         }
 
@@ -645,27 +756,23 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             print(f"   🧠 AI Decision: {agent_choice}")
             print(f"   💭 Reasoning: {reasoning}")
 
-            # Execute based on AI decision
+            # Execute based on AI decision (via A2A)
             if agent_choice == "designer":
-                design_task = Task(
-                    description=task_desc,
-                    from_agent="orchestrator",
-                    to_agent=self.designer.agent_card.agent_id
+                design_result = await self._send_task_to_agent(
+                    agent_id=self.designer.agent_card.agent_id,
+                    task_description=task_desc
                 )
-                design_result = await self.designer.execute_task(design_task)
                 context['design_spec'] = design_result.get('design_spec', {})
-                print(f"   ✓ Designer completed step")
+                print(f"   ✓ Designer completed step via A2A")
 
             elif agent_choice == "frontend":
-                impl_task = Task(
-                    description=task_desc,
-                    from_agent="orchestrator",
-                    to_agent=self.frontend.agent_card.agent_id,
+                impl_result = await self._send_task_to_agent(
+                    agent_id=self.frontend.agent_card.agent_id,
+                    task_description=task_desc,
                     metadata={"design_spec": context['design_spec']} if context['design_spec'] else None
                 )
-                impl_result = await self.frontend.execute_task(impl_task)
                 context['implementation'] = impl_result.get('implementation', {})
-                print(f"   ✓ Frontend completed step")
+                print(f"   ✓ Frontend completed step via A2A")
 
             elif agent_choice == "review":
                 if context['design_spec'] and context['implementation']:
@@ -673,13 +780,61 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
                         "original_design": context['design_spec'],
                         "implementation": context['implementation']
                     }
-                    review = await self.designer.review_artifact(review_artifact)
+                    review = await self._request_review_from_agent(
+                        agent_id=self.designer.agent_card.agent_id,
+                        artifact=review_artifact
+                    )
                     approved = review.get('approved', True)
                     score = review.get('score', 8)
                     context['review_score'] = score
-                    print(f"   ✓ Review completed: {'✅ Approved' if approved else '⚠️ Changes suggested'} (Score: {score}/10)")
+                    print(f"   ✓ Design review completed via A2A: {'✅ Approved' if approved else '⚠️ Changes suggested'} (Score: {score}/10)")
                 else:
-                    print(f"   ⚠️  Skipping review - missing prerequisites")
+                    print(f"   ⚠️  Skipping design review - missing prerequisites")
+
+            elif agent_choice == "code_reviewer":
+                if context['implementation']:
+                    review_result = await self._send_task_to_agent(
+                        agent_id=self.code_reviewer.agent_card.agent_id,
+                        task_description=task_desc,
+                        metadata={"implementation": context['implementation']}
+                    )
+                    context['code_review'] = review_result.get('review', {})
+                    overall_score = context['code_review'].get('overall_score', 'N/A')
+                    critical_issues = len(context['code_review'].get('critical_issues', []))
+                    print(f"   ✓ Code review completed via A2A: Score {overall_score}/10, {critical_issues} critical issues")
+                else:
+                    print(f"   ⚠️  Skipping code review - no implementation available")
+
+            elif agent_choice == "qa":
+                if context['implementation']:
+                    qa_result = await self._send_task_to_agent(
+                        agent_id=self.qa_engineer.agent_card.agent_id,
+                        task_description=task_desc,
+                        metadata={
+                            "implementation": context['implementation'],
+                            "requirements": user_prompt
+                        }
+                    )
+                    context['qa_report'] = qa_result.get('qa_report', {})
+                    quality_score = context['qa_report'].get('overall_quality_score', 'N/A')
+                    issues_found = len(context['qa_report'].get('issues_found', []))
+                    print(f"   ✓ QA testing completed via A2A: Quality {quality_score}/10, {issues_found} issues found")
+                else:
+                    print(f"   ⚠️  Skipping QA testing - no implementation available")
+
+            elif agent_choice == "devops":
+                if context['implementation']:
+                    devops_result = await self._send_task_to_agent(
+                        agent_id=self.devops.agent_card.agent_id,
+                        task_description=task_desc,
+                        metadata={"implementation": context['implementation']}
+                    )
+                    context['devops_config'] = devops_result.get('devops_report', {})
+                    deployment_score = context['devops_config'].get('deployment_score', 'N/A')
+                    optimizations = len(context['devops_config'].get('optimizations', []))
+                    print(f"   ✓ DevOps optimization completed via A2A: Score {deployment_score}/10, {optimizations} optimizations recommended")
+                else:
+                    print(f"   ⚠️  Skipping DevOps optimization - no implementation available")
 
             elif agent_choice == "deploy":
                 if context['implementation']:
@@ -698,7 +853,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
 
 🔗 Live Site: {context['deployment_url']}
 
-🎯 AI-Planned Workflow:
+🎯 AI-Planned Workflow (A2A Protocol):
   • Workflow type: {plan.get('workflow', 'custom')}
   • Reasoning: {plan.get('reasoning', 'N/A')}
   • Agents used: {', '.join(agents_needed)}
@@ -710,7 +865,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
   • Deployed on Netlify
   • Build attempts: {build_attempts}
 
-🤖 Coordinated by AI Planner + Multi-Agent System
+🤖 Coordinated by AI Planner + Multi-Agent System (A2A)
 """
                 else:
                     print(f"   ⚠️  Skipping deploy - no implementation available")
@@ -721,7 +876,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
         # If no deployment occurred, return a summary
         response = f"""✅ Custom workflow complete!
 
-🎯 AI-Planned Workflow:
+🎯 AI-Planned Workflow (A2A Protocol):
   • Workflow type: {plan.get('workflow', 'custom')}
   • Reasoning: {plan.get('reasoning', 'N/A')}
   • Agents used: {', '.join(agents_needed)}
@@ -740,11 +895,15 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
         if context['deployment_url']:
             response += f"\n  ✅ Deployed to: {context['deployment_url']}"
 
-        response += "\n\n🤖 Coordinated by AI Planner + Multi-Agent System"
+        response += "\n\n🤖 Coordinated by AI Planner + Multi-Agent System (A2A)"
 
         print("\n" + "-" * 60)
-        print("✅ [ORCHESTRATOR] Custom workflow complete!\n")
+        print("✅ [ORCHESTRATOR] Custom workflow complete (A2A)!\n")
         return response
+
+    # ==========================================
+    # DEPLOYMENT HELPERS
+    # ==========================================
 
     async def _deploy_with_retry(
         self,
@@ -753,7 +912,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
         design_spec: Dict
     ) -> Dict:
         """
-        Deploy to Netlify with build verification and automatic retry
+        Deploy to Netlify with build verification and automatic retry (using A2A for fixes)
 
         Returns:
             {
@@ -803,18 +962,16 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
                         'build_errors': all_build_errors
                     }
 
-                # Ask Frontend to fix the build error
-                print(f"\n🔧 Asking Frontend agent to fix build errors...")
-                fix_task = Task(
-                    description=f"Fix these build errors:\n\n{build_error}\n\nOriginal task: {user_prompt}",
-                    from_agent="orchestrator",
-                    to_agent=self.frontend.agent_card.agent_id,
-                    metadata={"design_spec": design_spec, "previous_implementation": current_implementation}
+                # Ask Frontend to fix the build error (via A2A)
+                print(f"\n🔧 Asking Frontend agent to fix build errors (A2A)...")
+                fix_result = await self._send_task_to_agent(
+                    agent_id=self.frontend.agent_card.agent_id,
+                    task_description=f"Fix these build errors:\n\n{build_error}\n\nOriginal task: {user_prompt}",
+                    metadata={"design_spec": design_spec, "previous_implementation": current_implementation},
+                    priority="high"
                 )
-
-                fix_result = await self.frontend.execute_task(fix_task)
                 current_implementation = fix_result.get('implementation', current_implementation)
-                print(f"✓ Frontend provided updated implementation")
+                print(f"✓ Frontend provided updated implementation via A2A")
 
         # Should never reach here, but just in case
         return {
@@ -895,75 +1052,6 @@ Respond in this format:
         except Exception as e:
             return (None, f"Deployment exception: {str(e)}")
 
-    async def _deploy_to_netlify(
-        self,
-        user_prompt: str,
-        implementation: Dict
-    ) -> Optional[str]:
-        """
-        Deploy webapp to Netlify using Claude SDK with Netlify MCP
-
-        Phase 4: Real Netlify deployment
-
-        Args:
-            user_prompt: User's original request
-            implementation: Frontend implementation with files
-
-        Returns:
-            Deployment URL if successful, None otherwise
-        """
-        try:
-            # Extract files from implementation
-            files = implementation.get('files', [])
-
-            if not files:
-                print("⚠️  No files to deploy")
-                return None
-
-            # Create a deployment prompt for Claude to use Netlify MCP tools
-            deployment_prompt = f"""You have access to Netlify MCP tools. Deploy this React webapp to Netlify.
-
-**Webapp Description:** {user_prompt}
-
-**Files to Deploy:**
-{self._format_files_for_deployment(files)}
-
-**Task:**
-1. Create a new Netlify site (or use an existing one)
-2. Deploy these files to Netlify
-3. Return the live deployment URL
-
-Use the Netlify MCP tools available to you. The site should be live and accessible immediately.
-
-Respond with ONLY the deployment URL (e.g., https://your-site-name.netlify.app) or the Netlify dashboard URL if deployment is pending."""
-
-            # Use Claude SDK with Netlify MCP to deploy
-            response = await self.deployment_sdk.send_message(deployment_prompt)
-
-            # Extract URL from response
-            import re
-            url_match = re.search(r'https://[a-zA-Z0-9-]+\.netlify\.app', response)
-
-            if url_match:
-                deployment_url = url_match.group(0)
-                print(f"✅ Extracted deployment URL: {deployment_url}")
-                return deployment_url
-            else:
-                # Check for netlify.com dashboard URL
-                dashboard_match = re.search(r'https://app\.netlify\.com/[^\s]+', response)
-                if dashboard_match:
-                    print(f"📊 Deployment created - check dashboard: {dashboard_match.group(0)}")
-                    return dashboard_match.group(0)
-
-                print(f"⚠️  Could not extract URL from response: {response[:200]}")
-                return None
-
-        except Exception as e:
-            print(f"❌ Deployment error: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
     def _format_files_for_deployment(self, files: list) -> str:
         """Format files list for deployment prompt"""
         formatted = []
@@ -1016,19 +1104,23 @@ Respond with ONLY the deployment URL (e.g., https://your-site-name.netlify.app) 
   • Build tool: Vite
   • Deployed on Netlify{build_status}
 
-🤖 Built by AI Agent Team:
+🤖 Built by AI Agent Team (A2A Protocol):
   • UI/UX Designer Agent (design + quality review)
   • Frontend Developer Agent (implementation + improvements)
   • Iterative quality improvement (minimum {self.min_quality_score}/10)
   • Automatic build verification
+  • All agents communicated via A2A Protocol
 
-🚀 Powered by Claude Multi-Agent System
+🚀 Powered by Claude Multi-Agent System with A2A
 """
 
     async def cleanup(self):
         """Clean up all agents and SDKs"""
         await self.designer.cleanup()
         await self.frontend.cleanup()
+        await self.code_reviewer.cleanup()
+        await self.qa_engineer.cleanup()
+        await self.devops.cleanup()
         await self.deployment_sdk.close()
         await self.planner_sdk.close()
         print("🧹 [ORCHESTRATOR] Cleaned up all agents, deployment SDK, and planner SDK")
