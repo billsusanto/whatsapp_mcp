@@ -174,11 +174,11 @@ async def process_whatsapp_message(phone_number: str, message: str):
 async def periodic_cleanup():
     """
     Background task for periodic cleanup of expired sessions and agents
-    Runs every 10 minutes to prevent memory leaks
+    Runs every 60 minutes to prevent memory leaks
     """
     while True:
         try:
-            await asyncio.sleep(600)  # Run every 10 minutes
+            await asyncio.sleep(3600)  # Run every 60 minutes (1 hour)
 
             print("🧹 Running periodic cleanup...")
 

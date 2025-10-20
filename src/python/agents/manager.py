@@ -141,8 +141,8 @@ class AgentManager:
         Returns:
             Agent's response
         """
-        # Phase 1.5: Check if this is a webapp build request
-        if self.multi_agent_enabled and self._is_webapp_request(message):
+        # Phase 1.5: Check if this is a webapp build request using AI detection
+        if self.multi_agent_enabled and await self._is_webapp_request(message):
             print(f"🎨 Multi-agent request detected from {phone_number}")
             print(f"   Routing to collaborative orchestrator...")
 
@@ -161,9 +161,11 @@ class AgentManager:
         agent = self.get_or_create_agent(phone_number)
         return await agent.process_message(message)
 
-    def _is_webapp_request(self, message: str) -> bool:
+    async def _is_webapp_request(self, message: str) -> bool:
         """
-        Detect if user is requesting webapp creation
+        Use AI to intelligently detect if user is requesting webapp creation
+
+        Instead of hardcoded keyword matching, uses Claude to understand intent.
 
         Args:
             message: User's message text
@@ -171,17 +173,84 @@ class AgentManager:
         Returns:
             True if message appears to be a webapp build request
         """
-        webapp_keywords = [
-            "build", "create", "make", "develop", "generate",
-            "website", "webapp", "web app", "application", "app",
-            "landing page", "dashboard", "portfolio", "site",
-            "todo", "blog", "store", "shop", "game"
-        ]
+        # Quick heuristic for obvious cases to save API calls
+        quick_check_keywords = ["build a", "create a", "make a", "webapp", "website", "application"]
+        if any(keyword in message.lower() for keyword in quick_check_keywords):
+            # Likely a webapp request, but verify with AI
+            pass
+        elif len(message.split()) <= 3:
+            # Very short messages are unlikely to be webapp requests
+            return False
 
-        message_lower = message.lower()
+        # Use AI to determine intent
+        decision_prompt = f"""Analyze this user message and determine if they are requesting webapp/website creation or just having a conversation.
 
-        # Check if message contains webapp-related keywords
-        return any(keyword in message_lower for keyword in webapp_keywords)
+**User Message:** "{message}"
+
+**Your Task:**
+Determine if this is:
+A) A request to build/create/design a webapp, website, or application
+B) A regular conversation, question, or general request
+
+**Examples of webapp requests:**
+- "Build me a todo list app"
+- "Create a booking website"
+- "I need a portfolio site"
+- "Make a dashboard for my business"
+- "Design a landing page"
+
+**Examples of regular conversation:**
+- "How are you?"
+- "Tell me about AI"
+- "What can you do?"
+- "Hello"
+- "Thanks for your help"
+
+**Output Format (JSON):**
+{{
+  "is_webapp_request": true | false,
+  "confidence": 0.0-1.0,
+  "reasoning": "Brief explanation of the decision"
+}}
+
+Be precise. Only return true if the user is clearly requesting webapp/website development."""
+
+        try:
+            # Create a temporary Claude SDK for decision making
+            from sdk.claude_sdk import ClaudeSDK
+            decision_sdk = ClaudeSDK(available_mcp_servers={})
+
+            response = await decision_sdk.send_message(decision_prompt)
+            await decision_sdk.close()
+
+            # Extract JSON
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                decision = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                decision = json.loads(response)
+            else:
+                # Fallback: if AI didn't return JSON, assume not webapp request
+                print(f"⚠️  Could not parse webapp detection response, defaulting to single agent")
+                return False
+
+            is_webapp = decision.get('is_webapp_request', False)
+            confidence = decision.get('confidence', 0.0)
+            reasoning = decision.get('reasoning', 'N/A')
+
+            print(f"   🧠 Webapp detection: {is_webapp} (confidence: {confidence:.2f})")
+            print(f"   💭 Reasoning: {reasoning}")
+
+            return is_webapp
+
+        except Exception as e:
+            print(f"⚠️  Error in webapp detection: {e}")
+            # Fallback to keyword matching only on error
+            webapp_keywords = ["build", "create", "make", "website", "webapp", "app", "site"]
+            return any(keyword in message.lower() for keyword in webapp_keywords)
 
     async def stream_response(self, phone_number: str, message: str):
         """

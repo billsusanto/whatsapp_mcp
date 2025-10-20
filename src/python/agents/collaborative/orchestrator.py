@@ -518,14 +518,96 @@ Respond with ONLY the deployment URL."""
         print("✅ [ORCHESTRATOR] Design complete!\n")
         return response
 
+    async def _ai_decide_step_executor(self, step: str, user_prompt: str, agents_available: list, context: Dict) -> Dict:
+        """
+        Use Claude AI to intelligently decide which agent should execute this step
+
+        Args:
+            step: The step description from the plan
+            user_prompt: Original user request
+            agents_available: List of available agents
+            context: Current workflow context (design_spec, implementation, etc.)
+
+        Returns:
+            {
+                "agent": "designer" | "frontend" | "review" | "deploy" | "skip",
+                "reasoning": "Why this agent was chosen",
+                "task_description": "Refined task description for the agent"
+            }
+        """
+        decision_prompt = f"""You are an intelligent orchestrator deciding which agent should execute a workflow step.
+
+**Workflow Step:** "{step}"
+
+**Original User Request:** "{user_prompt}"
+
+**Available Agents:**
+- **designer**: UI/UX Designer - creates design specifications, reviews implementations
+- **frontend**: Frontend Developer - writes React/Vue code, fixes bugs, implements features
+- **review**: Design Review - Designer reviews Frontend's implementation
+- **deploy**: Deployment - deploys code to Netlify with build verification
+- **skip**: Skip this step (if not actionable or already completed)
+
+**Current Context:**
+- Has design specification: {bool(context.get('design_spec'))}
+- Has implementation: {bool(context.get('implementation'))}
+- Agents in plan: {', '.join(agents_available)}
+
+**Your Task:**
+Analyze the step and decide which agent should execute it. Consider:
+1. What does this step actually require?
+2. Which agent is best suited for this work?
+3. Do we have the prerequisites (design, code, etc.)?
+4. Is this step even necessary given the context?
+
+**Output Format (JSON):**
+{{
+  "agent": "designer" | "frontend" | "review" | "deploy" | "skip",
+  "reasoning": "Clear explanation of why this agent was chosen",
+  "task_description": "Refined, specific task description for the agent to execute"
+}}
+
+Be intelligent and context-aware. Don't just pattern match - actually understand what the step requires."""
+
+        try:
+            response = await self.planner_sdk.send_message(decision_prompt)
+
+            # Extract JSON
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                decision = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                decision = json.loads(response)
+            else:
+                # Fallback
+                decision = {
+                    "agent": "skip",
+                    "reasoning": "Could not parse AI decision",
+                    "task_description": step
+                }
+
+            return decision
+
+        except Exception as e:
+            print(f"⚠️  Error in step decision: {e}")
+            # Fallback to skip
+            return {
+                "agent": "skip",
+                "reasoning": f"Error during decision: {str(e)}",
+                "task_description": step
+            }
+
     async def _workflow_custom(self, user_prompt: str, plan: Dict) -> str:
         """
         Custom workflow: Execute workflow based on AI planner's instructions
 
-        This workflow adapts to the AI planner's suggestions and can combine
-        different agents and steps as needed.
+        This workflow uses AI to intelligently route each step to the right agent,
+        rather than hardcoded keyword matching.
         """
-        print(f"\n🔮 Starting CUSTOM workflow")
+        print(f"\n🔮 Starting CUSTOM workflow with AI-powered step routing")
         print(f"📋 AI Planner reasoning: {plan.get('reasoning', 'N/A')}")
 
         if plan.get('special_instructions'):
@@ -534,69 +616,87 @@ Respond with ONLY the deployment URL."""
         agents_needed = plan.get('agents_needed', [])
         steps = plan.get('steps', [])
 
-        print(f"\n🤖 Agents needed: {', '.join(agents_needed)}")
+        print(f"\n🤖 Agents available: {', '.join(agents_needed)}")
         print(f"📝 Steps planned: {len(steps)}")
 
-        # Execute steps based on AI plan
-        design_spec = None
-        implementation = None
+        # Execute steps based on AI decisions
+        context = {
+            'design_spec': None,
+            'implementation': None,
+            'review_score': None,
+            'deployment_url': None
+        }
 
         for i, step in enumerate(steps):
             print(f"\n[Step {i+1}/{len(steps)}] {step}")
 
-            # Detect what this step requires
-            step_lower = step.lower()
+            # Use AI to decide which agent should handle this step
+            decision = await self._ai_decide_step_executor(
+                step=step,
+                user_prompt=user_prompt,
+                agents_available=agents_needed,
+                context=context
+            )
 
-            # Designer step
-            if 'designer' in agents_needed and any(keyword in step_lower for keyword in ['design', 'mockup', 'ui', 'ux', 'wireframe']):
+            agent_choice = decision.get('agent', 'skip')
+            reasoning = decision.get('reasoning', 'N/A')
+            task_desc = decision.get('task_description', step)
+
+            print(f"   🧠 AI Decision: {agent_choice}")
+            print(f"   💭 Reasoning: {reasoning}")
+
+            # Execute based on AI decision
+            if agent_choice == "designer":
                 design_task = Task(
-                    description=f"{step}: {user_prompt}",
+                    description=task_desc,
                     from_agent="orchestrator",
                     to_agent=self.designer.agent_card.agent_id
                 )
                 design_result = await self.designer.execute_task(design_task)
-                design_spec = design_result.get('design_spec', {})
-                print(f"✓ Designer completed step")
+                context['design_spec'] = design_result.get('design_spec', {})
+                print(f"   ✓ Designer completed step")
 
-            # Frontend step
-            elif 'frontend' in agents_needed and any(keyword in step_lower for keyword in ['implement', 'code', 'build', 'develop', 'fix']):
+            elif agent_choice == "frontend":
                 impl_task = Task(
-                    description=f"{step}: {user_prompt}",
+                    description=task_desc,
                     from_agent="orchestrator",
                     to_agent=self.frontend.agent_card.agent_id,
-                    metadata={"design_spec": design_spec} if design_spec else None
+                    metadata={"design_spec": context['design_spec']} if context['design_spec'] else None
                 )
                 impl_result = await self.frontend.execute_task(impl_task)
-                implementation = impl_result.get('implementation', {})
-                print(f"✓ Frontend completed step")
+                context['implementation'] = impl_result.get('implementation', {})
+                print(f"   ✓ Frontend completed step")
 
-            # Review step
-            elif 'review' in step_lower and design_spec and implementation:
-                review_artifact = {
-                    "original_design": design_spec,
-                    "implementation": implementation
-                }
-                review = await self.designer.review_artifact(review_artifact)
-                approved = review.get('approved', True)
-                score = review.get('score', 8)
-                print(f"✓ Review completed: {'✅ Approved' if approved else '⚠️ Changes suggested'} (Score: {score}/10)")
+            elif agent_choice == "review":
+                if context['design_spec'] and context['implementation']:
+                    review_artifact = {
+                        "original_design": context['design_spec'],
+                        "implementation": context['implementation']
+                    }
+                    review = await self.designer.review_artifact(review_artifact)
+                    approved = review.get('approved', True)
+                    score = review.get('score', 8)
+                    context['review_score'] = score
+                    print(f"   ✓ Review completed: {'✅ Approved' if approved else '⚠️ Changes suggested'} (Score: {score}/10)")
+                else:
+                    print(f"   ⚠️  Skipping review - missing prerequisites")
 
-            # Deploy step
-            elif 'deploy' in step_lower and implementation:
-                deployment_result = await self._deploy_with_retry(
-                    user_prompt=user_prompt,
-                    implementation=implementation,
-                    design_spec=design_spec or {}
-                )
-                deployment_url = deployment_result.get('url', 'https://app.netlify.com/teams')
-                build_attempts = deployment_result.get('attempts', 1)
-                print(f"✓ Deployed successfully after {build_attempts} attempt(s)")
+            elif agent_choice == "deploy":
+                if context['implementation']:
+                    deployment_result = await self._deploy_with_retry(
+                        user_prompt=user_prompt,
+                        implementation=context['implementation'],
+                        design_spec=context['design_spec'] or {}
+                    )
+                    context['deployment_url'] = deployment_result.get('url', 'https://app.netlify.com/teams')
+                    build_attempts = deployment_result.get('attempts', 1)
+                    print(f"   ✓ Deployed successfully after {build_attempts} attempt(s)")
 
-                # Return success response
-                framework = implementation.get('framework', 'react')
-                return f"""✅ Custom workflow complete!
+                    # Return success response
+                    framework = context['implementation'].get('framework', 'react')
+                    return f"""✅ Custom workflow complete!
 
-🔗 Live Site: {deployment_url}
+🔗 Live Site: {context['deployment_url']}
 
 🎯 AI-Planned Workflow:
   • Workflow type: {plan.get('workflow', 'custom')}
@@ -612,6 +712,11 @@ Respond with ONLY the deployment URL."""
 
 🤖 Coordinated by AI Planner + Multi-Agent System
 """
+                else:
+                    print(f"   ⚠️  Skipping deploy - no implementation available")
+
+            elif agent_choice == "skip":
+                print(f"   ⏭️  Skipping step")
 
         # If no deployment occurred, return a summary
         response = f"""✅ Custom workflow complete!
@@ -626,10 +731,14 @@ Respond with ONLY the deployment URL."""
 📋 Results:
 """
 
-        if design_spec:
+        if context['design_spec']:
             response += "\n  ✅ Design specification created"
-        if implementation:
+        if context['implementation']:
             response += "\n  ✅ Implementation completed"
+        if context['review_score']:
+            response += f"\n  ✅ Design review completed (Score: {context['review_score']}/10)"
+        if context['deployment_url']:
+            response += f"\n  ✅ Deployed to: {context['deployment_url']}"
 
         response += "\n\n🤖 Coordinated by AI Planner + Multi-Agent System"
 
