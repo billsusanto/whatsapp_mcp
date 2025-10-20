@@ -12,6 +12,14 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from agents.agent import Agent
 from agents.session import SessionManager
 
+# Phase 1.5: Multi-agent system integration
+try:
+    from agents.collaborative.orchestrator import CollaborativeOrchestrator
+    MULTI_AGENT_AVAILABLE = True
+except ImportError:
+    MULTI_AGENT_AVAILABLE = False
+    print("⚠️  Multi-agent system not available")
+
 
 class AgentManager:
     """Manages multiple agent instances"""
@@ -79,8 +87,24 @@ class AgentManager:
                 traceback.print_exc()
                 self.enable_netlify = False
 
+        # 4. Initialize Multi-Agent Orchestrator (Phase 1.5+)
+        self.multi_agent_enabled = False
+        self.orchestrator = None
+
+        if MULTI_AGENT_AVAILABLE and self.enable_netlify:
+            try:
+                self.orchestrator = CollaborativeOrchestrator(
+                    mcp_servers=self.available_mcp_servers
+                )
+                self.multi_agent_enabled = True
+                print("✅ Multi-agent orchestrator initialized")
+            except Exception as e:
+                print(f"⚠️  Multi-agent orchestrator failed to initialize: {e}")
+                self.multi_agent_enabled = False
+
         print(f"\nAgentManager initialized")
         print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
+        print(f"Multi-agent mode: {'✅ Enabled' if self.multi_agent_enabled else '❌ Disabled'}")
 
     def get_or_create_agent(self, phone_number: str) -> Agent:
         """
@@ -107,6 +131,9 @@ class AgentManager:
         """
         Process a message by routing to the appropriate agent
 
+        Phase 1.5: Routes to multi-agent orchestrator for webapp requests,
+        single agent for regular conversations.
+
         Args:
             phone_number: User's phone number
             message: Message text
@@ -114,8 +141,47 @@ class AgentManager:
         Returns:
             Agent's response
         """
+        # Phase 1.5: Check if this is a webapp build request
+        if self.multi_agent_enabled and self._is_webapp_request(message):
+            print(f"🎨 Multi-agent request detected from {phone_number}")
+            print(f"   Routing to collaborative orchestrator...")
+
+            try:
+                # Use multi-agent orchestrator
+                response = await self.orchestrator.build_webapp(message)
+                return response
+            except Exception as e:
+                print(f"❌ Multi-agent orchestrator error: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fallback to single agent
+                print("   Falling back to single agent...")
+
+        # Regular conversation: use single agent
         agent = self.get_or_create_agent(phone_number)
         return await agent.process_message(message)
+
+    def _is_webapp_request(self, message: str) -> bool:
+        """
+        Detect if user is requesting webapp creation
+
+        Args:
+            message: User's message text
+
+        Returns:
+            True if message appears to be a webapp build request
+        """
+        webapp_keywords = [
+            "build", "create", "make", "develop", "generate",
+            "website", "webapp", "web app", "application", "app",
+            "landing page", "dashboard", "portfolio", "site",
+            "todo", "blog", "store", "shop", "game"
+        ]
+
+        message_lower = message.lower()
+
+        # Check if message contains webapp-related keywords
+        return any(keyword in message_lower for keyword in webapp_keywords)
 
     async def stream_response(self, phone_number: str, message: str):
         """

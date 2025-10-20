@@ -1,6 +1,5 @@
-# Python Dependencies for WhatsApp Agent Project
-# This project uses:
-# - Python for Claude Agent SDK service on Render
+# Python 3.12+ Requirements for WhatsApp Multi-Agent System
+# Consolidates all dependencies for production deployment
 
 # ============================================
 # Core Dependencies
@@ -17,6 +16,9 @@ requests>=2.31.0
 
 # Environment Variables
 python-dotenv>=1.0.0
+
+# Data validation
+pydantic>=2.0.0
 
 # ============================================
 # Web Service Dependencies (Render Deployment)
@@ -36,8 +38,11 @@ uvicorn[standard]>=0.24.0
 mcp>=1.18.0
 
 # ============================================
-# Development & Testing
+# Multi-Agent A2A Dependencies (Phase 1)
 # ============================================
 
-# pytest (for testing)
-# pytest>=7.4.0
+# Async HTTP client for A2A protocol
+aiohttp>=3.9.0
+
+# Type hints extensions
+typing-extensions>=4.14.1

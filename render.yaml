@@ -6,10 +6,10 @@ services:
   - type: web
     name: whatsapp-mcp
     runtime: docker
-    # Use starter plan ($7/month) for 512MB RAM
-    # Free tier (512MB) has spin-down delays which cause timeouts with MCP servers
-    # If memory issues persist, upgrade to standard ($25/month) for 2GB RAM
-    plan: starter
+    # Use standard plan ($25/month) for 2GB RAM
+    # Multi-agent system requires more memory than single-agent
+    # Starter plan (512MB) may cause memory issues with orchestrator
+    plan: standard
     region: oregon # or 'frankfurt', 'singapore'
 
     # Docker configuration
@@ -50,9 +50,14 @@ services:
       - key: ENABLE_NETLIFY_MCP
         value: true  # Enable Netlify MCP server integration
 
-      # Agent System Prompt
+      # Agent System Prompt (for single-agent mode)
       - key: AGENT_SYSTEM_PROMPT
         value: "You are a professional CTO (Chief Technology Officer) assistant. You help users with technical architecture, code review, technology recommendations, team leadership, product development, technical debt management, and DevOps guidance. Respond professionally, concisely, and with practical technical insights."
+
+      # Multi-Agent System (Phase 1.5+)
+      # Note: Multi-agent mode is enabled automatically when ENABLE_NETLIFY_MCP=true
+      # Webapp build requests will route to Designer + Frontend agents
+      # Regular conversations use single-agent mode
 
       # Service configuration
       - key: PORT
