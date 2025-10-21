@@ -152,7 +152,6 @@ IMPORTANT:
             if mcp_servers:
                 options = ClaudeAgentOptions(
                     model=self.model,  # Use Claude Sonnet 4.5
-                    max_tokens=self.max_tokens,
                     mcp_servers=mcp_servers,
                     allowed_tools=allowed_tools,
                     permission_mode='bypassPermissions',  # Auto-approve all tool usage
@@ -165,7 +164,6 @@ IMPORTANT:
                 # No MCP servers, but still need to specify model
                 options = ClaudeAgentOptions(
                     model=self.model,  # Use Claude Sonnet 4.5
-                    max_tokens=self.max_tokens,
                     system_prompt=self.system_prompt
                 )
 

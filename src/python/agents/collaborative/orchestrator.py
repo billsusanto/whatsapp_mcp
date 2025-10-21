@@ -69,6 +69,28 @@ class CollaborativeOrchestrator:
         self.mcp_servers = mcp_servers
         self.orchestrator_id = self.ORCHESTRATOR_ID
 
+        # Register orchestrator with A2A protocol so it can send messages
+        from .models import AgentCard, AgentRole
+        self.agent_card = AgentCard(
+            agent_id=self.ORCHESTRATOR_ID,
+            name="Orchestrator",
+            role=AgentRole.DEVOPS,  # Using DevOps as closest match for orchestrator role
+            description="Multi-agent workflow orchestrator",
+            capabilities=["workflow_planning", "agent_coordination", "deployment"],
+            skills={"coordination": ["AI planning", "task routing", "resource management"]}
+        )
+
+        # Create a minimal agent interface for A2A protocol registration
+        class OrchestratorAgent:
+            def __init__(self, agent_card):
+                self.agent_card = agent_card
+            async def receive_message(self, message):
+                # Orchestrator doesn't receive messages from other agents
+                return {"acknowledged": True}
+
+        orchestrator_agent = OrchestratorAgent(self.agent_card)
+        a2a_protocol.register_agent(orchestrator_agent)
+
         # Lazy initialization: agents are NOT created at startup
         # They're created on-demand when needed and cleaned up after use
         self._active_agents: Dict[str, any] = {}  # Currently active agents
@@ -1273,5 +1295,8 @@ Respond in this format:
         # Clean up SDKs
         await self.deployment_sdk.close()
         await self.planner_sdk.close()
+
+        # Unregister orchestrator from A2A protocol
+        a2a_protocol.unregister_agent(self.ORCHESTRATOR_ID)
 
         print("🧹 [ORCHESTRATOR] Cleaned up all agents, deployment SDK, and planner SDK")
