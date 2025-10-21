@@ -65,12 +65,14 @@ class BaseAgent(ABC):
         Returns:
             Response dict
         """
-        print(f"📥 {self.agent_card.name} received: {message.message_type.value}")
+        # message.message_type is already a string due to use_enum_values = True
+        print(f"📥 {self.agent_card.name} received: {message.message_type}")
 
+        # Use string values as keys since message.message_type is serialized to string
         handlers = {
-            MessageType.TASK_REQUEST: self.handle_task_request,
-            MessageType.REVIEW_REQUEST: self.handle_review_request,
-            MessageType.QUESTION: self.handle_question,
+            "task_request": self.handle_task_request,
+            "review_request": self.handle_review_request,
+            "question": self.handle_question,
         }
 
         handler = handlers.get(message.message_type)
