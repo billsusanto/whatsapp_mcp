@@ -73,6 +73,16 @@ class MessageResponse(BaseModel):
     status: str = "success"
 
 
+@app.get("/")
+async def root():
+    """Root endpoint - Render health check"""
+    return {
+        "service": "whatsapp-mcp",
+        "status": "running",
+        "version": "1.0.0"
+    }
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Render"""
