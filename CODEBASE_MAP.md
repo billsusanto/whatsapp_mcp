@@ -1261,4 +1261,604 @@ Designer agent now checks:
 
 ---
 
+### 6. Enhanced Agent Prompts for Production-Ready Code (2025-10-22)
+
+**Goal:** Improve coding proficiency across all agents with emphasis on GitHub integration, Netlify deployment, and production-ready code.
+
+#### **A. Frontend Developer Agent Enhancements** (`frontend_agent.py`)
+
+**System Prompt Improvements (lines 38-122):**
+
+1. **Modern React Patterns Added:**
+   - TypeScript encouragement for type safety
+   - React.memo(), useCallback, useMemo for performance
+   - Custom hooks for reusable logic
+   - Context API and modern state management
+
+2. **Code Quality Principles (7 sections):**
+   - SOLID principles and DRY
+   - React performance optimization
+   - Production-ready features (error handling, loading states, edge cases)
+   - Git/GitHub best practices
+   - Code organization patterns
+   - Accessibility (WCAG 2.1 AA)
+   - Comprehensive documentation
+
+3. **GitHub-Ready Requirements:**
+   - `.gitignore` (node_modules, .env, dist, build, .DS_Store, coverage)
+   - `README.md` with setup instructions, env vars, build commands, tech stack
+   - `.env.example` template for environment variables
+
+**Task Execution Prompt Enhancements (lines 144-266):**
+
+1. **Enhanced Project Structure:**
+   - All necessary files including hooks/, utils/, components/
+   - netlify.toml or vite.config.js for build
+   - Comprehensive .gitignore and documentation
+
+2. **Stricter Requirements:**
+   - "Generate COMPLETE, WORKING code (NO placeholders, NO TODOs)"
+   - All imports and dependencies included
+   - Production-ready, deployable code
+   - Meaningful names for everything
+
+3. **New Output Fields:**
+   ```json
+   {
+     "github_ready": true,
+     "environment_variables": ["API_KEY (optional)", "API_URL (optional)"]
+   }
+   ```
+
+**Impact:**
+- Frontend code is now GitHub-ready by default
+- No more placeholder code or TODOs
+- Production-ready with error handling, loading states
+- Performance-optimized with React best practices
+
+---
+
+#### **B. Code Reviewer Agent Enhancements** (`code_reviewer_agent.py`)
+
+**System Prompt Overhaul (lines 37-178):**
+
+1. **Review Philosophy Changed:**
+   ```
+   OLD: Be thorough but constructive
+   NEW: STRICT and maintain HIGH STANDARDS
+        - Give scores of 9-10 only for truly excellent code
+        - Don't be afraid to give low scores (5-7)
+        - Prevent technical debt
+   ```
+
+2. **10 Comprehensive Review Criteria:**
+   - Security Analysis (CRITICAL) - OWASP Top 10, CVEs
+   - Code Quality & Best Practices - SOLID, DRY
+   - React/JavaScript Specific - hooks, performance
+   - Error Handling & Edge Cases
+   - Performance - re-renders, memory leaks
+   - Accessibility - WCAG 2.1
+   - **Documentation & Code Comments** ← NEW
+   - **Git/GitHub Best Practices** ← NEW
+   - Maintainability & Scalability
+   - Dependencies & Build
+
+3. **Strict Scoring Guidelines:**
+   - 10/10: Perfect - production-ready, secure, performant
+   - 9/10: Excellent - minor tweaks needed
+   - 8/10: Good - a few improvements needed
+   - 7/10: Acceptable - several issues to fix
+   - 6/10: Below standard - significant issues
+   - 5/10: Poor - major refactoring needed
+   - 1-4/10: Critical issues - security flaws, broken functionality
+
+4. **GitHub/Documentation Checks:**
+   - Proper .gitignore (node_modules, .env, build artifacts)
+   - No secrets or API keys in code
+   - Environment variable usage
+   - README completeness
+   - Code comments quality
+   - TODO/FIXME comments flagged
+
+**Impact:**
+- Higher code quality standards enforced
+- Technical debt prevented
+- Security issues caught early
+- Better documentation required
+
+---
+
+#### **C. DevOps Engineer Agent - Build Error Detection** (`devops_agent.py`)
+
+**MAJOR ENHANCEMENT: Proactive Build Error Handling and netlify.toml Generation**
+
+**Capabilities Updated (lines 20-32):**
+```python
+capabilities=[
+    "Netlify deployment",
+    "Build error detection and fixing",           # NEW
+    "netlify.toml configuration with devDependencies",  # NEW
+    "Build optimization",
+    "Post-deployment verification",               # NEW
+    ...
+]
+```
+
+**Skills Enhanced (lines 33-39):**
+```python
+skills={
+    "tools": ["Git", "npm", "Vite", "Webpack", "netlify.toml"],
+    "specialties": ["Build error detection & fixing", ...],
+    "monitoring": ["Build logs analysis", ...],
+    "expertise": ["devDependencies configuration", "Netlify build troubleshooting"]
+}
+```
+
+**System Prompt - New Critical Sections:**
+
+1. **Section 5: Build Verification & Error Handling (lines 141-158)**
+   ```
+   - ALWAYS check build logs for errors after deployment
+   - Common errors: missing dependencies, import errors, TypeScript errors
+   - If build fails, YOU MUST:
+     1. Analyze error messages
+     2. Identify root cause
+     3. Provide SPECIFIC fixes to Frontend Developer
+     4. Request code updates
+     5. Redeploy and verify build succeeds
+   ```
+
+2. **Section 6: Netlify Configuration - netlify.toml (lines 160-184)**
+   ```toml
+   [build]
+     command = "npm run build"
+     publish = "dist"
+
+   [build.environment]
+     NODE_VERSION = "18"
+     # CRITICAL: Include dev dependencies for build tools
+     NPM_FLAGS = "--include=dev"
+
+   [[redirects]]
+     from = "/*"
+     to = "/index.html"
+     status = 200
+   ```
+
+   **Why Critical:**
+   - Most common Netlify failure: devDependencies not installed
+   - Vite, @vitejs/plugin-react in devDependencies
+   - Without `NPM_FLAGS = "--include=dev"`, build tools unavailable
+   - Result: "Cannot find module" errors
+
+3. **Section 7: Post-Deployment Verification (lines 186-202)**
+   ```
+   - ✅ Check Netlify build logs for success/failure
+   - ✅ If build failed:
+     * Read error messages
+     * Identify missing packages or build issues
+     * Check if devDependencies installed (common issue!)
+     * Request Frontend Developer to fix
+     * Redeploy after fixes
+   - ✅ Site is live and accessible (test URL!)
+   - ✅ Page loads without errors (no blank pages)
+   - ✅ No console errors in browser
+   ```
+
+**Task Execution Prompt Enhancements:**
+
+**Phase 2: Build Configuration & netlify.toml Generation (lines 279-321)**
+1. Generate/verify netlify.toml (CRITICAL)
+2. Dependency analysis (including devDependencies)
+3. Build configuration validation
+4. Pre-deployment build test
+
+**Phase 5: Post-Deployment Verification (lines 359-414)**
+1. **Check Netlify Build Logs (MANDATORY)**
+   - Look for success/failure
+   - Read error messages
+   - Common errors identified:
+     * "Cannot find module X" → Missing dependency
+     * "devDependencies not installed" → netlify.toml issue
+     * Import errors → Wrong paths
+     * TypeScript errors → Type mismatches
+
+2. **Verify Live Site Works (MANDATORY)**
+   - Test deployment URL
+   - Check page loads (not blank)
+   - Check browser console
+   - Verify features work
+
+3. **Build Error Resolution Process**
+   - Analyze error messages
+   - Identify root cause
+   - Generate specific fixes
+   - Return fix instructions to orchestrator
+   - Prepare for redeployment
+   - **DO NOT mark as successful if build failed!**
+
+**Enhanced JSON Output (lines 416-513):**
+```json
+{
+  "netlify_toml_config": {
+    "exists": true,
+    "is_complete": true,
+    "includes_dev_dependencies": true,  // CRITICAL
+    "content": "...complete file...",
+    "issues": []
+  },
+  "build_verification": {
+    "build_successful": false,
+    "build_errors": [{
+      "error": "Cannot find module '@vitejs/plugin-react'",
+      "file": "vite.config.js",
+      "fix": "Add to package.json devDependencies"
+    }],
+    "specific_fixes_needed": [...]
+  },
+  "post_deployment_check": {
+    "site_accessible": true,
+    "page_loads": false,
+    "console_errors": ["Failed to load module"],
+    "needs_fixes": true
+  },
+  "deployment_successful": false  // Overall status
+}
+```
+
+**Updated Deployment Priority Order (lines 204-212):**
+```
+1. GitHub repository setup and code push
+2. Generate/verify netlify.toml with devDependencies ← NEW
+3. Build verification
+4. Security check
+5. Netlify deployment
+6. CHECK BUILD LOGS ← MANDATORY NEW STEP
+7. If build fails → Fix errors → Redeploy ← NEW
+8. Post-deployment verification (test live site) ← NEW
+```
+
+**Critical Reminders Added (lines 515-532):**
+```
+- ALWAYS generate netlify.toml with NPM_FLAGS = "--include=dev"
+- ALWAYS check Netlify build logs after deployment
+- If build fails, YOU MUST provide specific fixes
+- Common fix: Add netlify.toml with devDependencies
+- ALWAYS verify deployed site actually works
+- DO NOT mark as successful if build failed
+- If site is blank/broken, likely missing devDependencies
+
+YOUR RESPONSIBILITY:
+You are the guardian of deployment quality. If the build fails,
+it's YOUR job to analyze errors and provide fixes.
+```
+
+**Impact:**
+- Prevents #1 Netlify failure (missing devDependencies)
+- Detects build errors automatically
+- Analyzes and provides fixes
+- Verifies deployments actually work
+- No more blank pages or silent failures
+
+---
+
+#### **D. QA Engineer Agent Enhancements** (`qa_agent.py`)
+
+**System Prompt Expansion (lines 38-182):**
+
+1. **Testing Philosophy Added:**
+   ```
+   You are THOROUGH and USER-FOCUSED
+   - Think like a real user trying to break the app
+   - Test every user flow from start to finish
+   - Try edge cases, unexpected data, rapid clicks
+   - Be critical but fair
+   ```
+
+2. **10 Comprehensive Testing Criteria:**
+   - Functional Testing
+   - Usability & UX Testing
+   - Accessibility Testing (WCAG 2.1 with specific ratios)
+   - Responsive Design Testing (specific breakpoints)
+   - Performance Testing (Core Web Vitals: LCP, FCP, CLS)
+   - Cross-Browser Testing (Chrome, Firefox, Safari, Edge)
+   - Edge Cases & Boundary Testing
+   - **Security Testing (Basic)** ← NEW
+   - **Code Quality Verification** ← NEW
+   - **Production Readiness** ← NEW
+
+3. **Detailed Scoring Guidelines:**
+   - 10/10: Perfect - flawless user experience
+   - 9/10: Excellent - minor cosmetic issues
+   - 8/10: Good - a few improvements needed
+   - 7/10: Acceptable - several issues to fix
+   - 6/10: Below standard - significant issues
+   - 5/10: Poor - many problems, major fixes needed
+   - 1-4/10: Critical - broken functionality, unusable
+
+**Impact:**
+- More thorough testing coverage
+- Security basics checked
+- Production readiness validated
+- Realistic quality assessments
+
+---
+
+### 7. Smart Context Merging - Concurrent Message Handling (2025-10-22)
+
+**Problem Solved:**
+When a user sends a new message while the multi-agent team is processing a previous request, the system now intelligently handles it instead of creating duplicate/conflicting orchestrators.
+
+#### **A. Orchestrator State Management** (`orchestrator.py`)
+
+**New State Tracking (lines 127-134):**
+```python
+self.is_active = False              # Currently processing?
+self.current_phase = None            # design | implementation | review | deployment
+self.current_workflow = None         # full_build | bug_fix | etc.
+self.original_prompt = None          # User's original request
+self.accumulated_refinements = []    # All refinements made
+self.current_implementation = None   # Current code being worked on
+self.current_design_spec = None      # Current design specification
+```
+
+**Phase Tracking in Workflows:**
+- Line 846: `self.current_phase = "design"`
+- Line 866: `self.current_phase = "implementation"`
+- Line 882: `self.current_phase = "review"`
+- Line 954: `self.current_phase = "deployment"`
+
+**New Methods for Message Handling (lines 270-472):**
+
+1. **`get_status()`** (lines 270-283)
+   - Returns current orchestrator status
+   - Shows phase, workflow, refinements count
+
+2. **`handle_refinement(refinement_message)`** (lines 285-339)
+   - Intelligently applies refinements based on current phase
+   - Routes to phase-specific handlers
+   - Sends WhatsApp notifications
+
+3. **`_refine_during_design()`** (lines 341-373)
+   - Designer updates design spec with user's change
+   - Updates `self.current_design_spec`
+
+4. **`_refine_during_implementation()`** (lines 375-412)
+   - Frontend developer updates code
+   - Updates `self.current_implementation`
+
+5. **`_refine_during_review()`** (lines 414-424)
+   - Notes refinement for next iteration
+
+6. **`handle_status_query()`** (lines 426-446)
+   - Returns status message to user
+   - Shows current phase and progress
+
+7. **`handle_cancellation()`** (lines 448-472)
+   - Cleanly cancels task
+   - Cleans up all agents
+   - Resets state
+
+**State Updates in build_webapp() (lines 770-831):**
+```python
+# Mark as active
+self.is_active = True
+self.original_prompt = user_prompt
+self.current_phase = "planning"
+self.current_workflow = workflow_type
+
+# ... workflow execution ...
+
+# Mark as completed
+self.is_active = False
+self.current_phase = None
+```
+
+---
+
+#### **B. AgentManager Smart Routing** (`manager.py`)
+
+**Per-User Orchestrator Tracking (lines 90-100):**
+```python
+OLD: self.orchestrator = None  # Single global orchestrator
+NEW: self.orchestrators: Dict[str, any] = {}  # Per-user orchestrators
+```
+
+**AI-Powered Message Classification (lines 329-439):**
+
+1. **`_classify_message(message, active_task, current_phase)`**
+   - Uses Claude to classify incoming messages
+   - Returns one of:
+     * "refinement" - User wants to modify current task
+     * "status_query" - Asking about progress
+     * "cancellation" - Wants to cancel
+     * "new_task" - Completely different task
+     * "conversation" - General chat
+
+2. **Classification Prompt (lines 348-386):**
+   ```
+   Context:
+   - Currently working on: "Build a todo app"
+   - Current phase: implementation
+
+   New message: "Make it blue"
+
+   Classify as:
+   1. refinement - Modify/refine current task
+   2. status_query - Asking about progress
+   3. cancellation - Stop current task
+   4. new_task - Different, unrelated task
+   5. conversation - General chat
+   ```
+
+3. **Fallback Heuristics (lines 420-439):**
+   - Keyword matching if AI fails
+   - Short messages → likely refinement
+   - Status keywords → status_query
+   - Cancel keywords → cancellation
+
+**Smart Message Routing (lines 127-236):**
+
+```python
+async def process_message(phone_number, message):
+    # Check for active orchestrator
+    if orchestrator.is_active:
+        # Classify the message
+        message_type = await _classify_message(...)
+
+        if message_type == "refinement":
+            # Apply to current task
+            orchestrator.handle_refinement(message)
+
+        elif message_type == "status_query":
+            # Return status
+            orchestrator.handle_status_query()
+
+        elif message_type == "cancellation":
+            # Cancel and cleanup
+            orchestrator.handle_cancellation()
+
+        elif message_type == "new_task":
+            # Warn user and ask confirmation
+            return warning_message
+
+    # No active orchestrator - check for new webapp request
+    elif is_webapp_request(message):
+        # Create new orchestrator for this user
+        orchestrator = CollaborativeOrchestrator(...)
+        self.orchestrators[phone_number] = orchestrator
+```
+
+---
+
+#### **C. Real-World Examples**
+
+**Example 1: Refinement During Design**
+```
+User: "Build me a todo app"
+→ Orchestrator starts, phase: "design"
+   Designer creates design spec...
+
+10 seconds later...
+User: "Make it blue"
+→ AI classifies: "refinement"
+→ Orchestrator.handle_refinement("Make it blue")
+→ Designer updates design spec with blue colors
+→ User notified: "✅ Design updated!"
+→ Implementation continues with updated design
+```
+
+**Example 2: Refinement During Implementation**
+```
+User: "Build a booking website"
+→ phase: "implementation"
+   Frontend coding...
+
+User: "Add a login feature"
+→ AI classifies: "refinement"
+→ Frontend updates code to add login
+→ User notified: "✅ Implementation updated!"
+→ Review continues with updated code
+```
+
+**Example 3: Status Query**
+```
+User: "Build a dashboard"
+→ phase: "review"
+
+User: "How's it going?"
+→ AI classifies: "status_query"
+→ Returns: "📊 Current Task Status:
+           🎯 Original: Build a dashboard
+           📍 Phase: review
+           📝 Refinements: 0"
+```
+
+**Example 4: Cancellation**
+```
+User: "Build a todo app"
+→ phase: "implementation"
+
+User: "Cancel"
+→ AI classifies: "cancellation"
+→ All agents cleaned up
+→ State reset
+→ User notified: "🛑 Task cancelled."
+```
+
+**Example 5: New Task Warning**
+```
+User: "Build a todo app"
+→ phase: "design"
+
+User: "Build a booking system"
+→ AI classifies: "new_task"
+→ Returns: "⚠️ Multi-agent team is working on: Build a todo app
+
+           Would you like to:
+           1. Continue current task
+           2. Cancel and start fresh
+           3. Wait for completion"
+```
+
+---
+
+#### **D. Benefits & Impact**
+
+**No More Conflicts:**
+- Each user gets their own orchestrator instance
+- Concurrent messages don't create duplicate builds
+- State tracked per user
+
+**Intelligent Refinements:**
+- Users can modify requests mid-flight
+- Changes applied contextually based on phase
+- No need to cancel and restart
+
+**Better UX:**
+- Ask "how's it going?" and get real status
+- Cancel gracefully if change mind
+- Real-time notifications
+
+**AI-Powered Classification:**
+- Claude understands user intent
+- "Make it blue" → refinement, not new task
+- "Cancel" understood without exact match
+
+**Resource Efficiency:**
+- Orchestrators created per-user on-demand
+- Cleaned up when tasks complete
+- No memory leaks
+
+---
+
+### 8. Files Modified Summary (2025-10-22)
+
+| File | Lines Changed | Major Changes |
+|------|--------------|---------------|
+| `frontend_agent.py` | ~180 lines | Enhanced prompts, GitHub-ready code, TypeScript, performance optimization |
+| `code_reviewer_agent.py` | ~140 lines | Strict standards, 10 review criteria, GitHub checks, documentation validation |
+| `devops_agent.py` | ~230 lines | Build error detection, netlify.toml generation, post-deployment verification |
+| `qa_agent.py` | ~100 lines | Enhanced testing criteria, security checks, production readiness |
+| `orchestrator.py` | ~200 lines | State management, refinement handling, phase tracking |
+| `manager.py` | ~150 lines | Per-user orchestrators, AI message classification, smart routing |
+
+---
+
+### 9. Testing & Validation (2025-10-22)
+
+**Syntax Validation:**
+```bash
+✅ python3 -m py_compile src/python/agents/collaborative/frontend_agent.py
+✅ python3 -m py_compile src/python/agents/collaborative/code_reviewer_agent.py
+✅ python3 -m py_compile src/python/agents/collaborative/devops_agent.py
+✅ python3 -m py_compile src/python/agents/collaborative/qa_agent.py
+✅ python3 -m py_compile src/python/agents/collaborative/orchestrator.py
+✅ python3 -m py_compile src/python/agents/manager.py
+```
+
+**All files compile without errors.**
+
+---
+
 **End of Codebase Map**
