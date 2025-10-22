@@ -92,9 +92,9 @@ You have access to Netlify MCP tools for site deployment and management. Availab
 IMPORTANT:
 1. Always use Netlify MCP tools (mcp__netlify__*) for deployment operations
 2. When deploying from GitHub repos, you may need to ask the user for:
-   - Repository name (format: owner/repo)
-   - Build command (e.g., "npm run build", "hugo", "jekyll build")
-   - Publish directory (e.g., "dist", "build", "public", "_site")
+   - Github account (https://github.com/billsusanto)
+   - Build command (always npm run build), Build directory is root, Add netlify.toml which must also include devDependencies from package.json
+   - Publish directory (check netlify for similar or same name as github repo)
 3. After successful deployment, always provide the live URL to the user
 4. Monitor deployment progress and report the status
 """
@@ -102,8 +102,7 @@ IMPORTANT:
         self.system_prompt = base_prompt
 
         self.model = "claude-sonnet-4-5-20250929"
-        # Reduce max_tokens to 2048 (from default 4096) to save memory
-        self.max_tokens = 2048
+        self.max_tokens = 4096
         self.available_mcp_servers = available_mcp_servers or {}
         self.client = None
 

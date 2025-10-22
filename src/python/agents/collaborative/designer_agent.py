@@ -24,7 +24,9 @@ class DesignerAgent(BaseAgent):
                 "Typography specification",
                 "Component design",
                 "Accessibility review",
-                "Responsive design"
+                "Responsive design",
+                "Frontend code review",
+                "Design fidelity verification"
             ],
             skills={
                 "design": ["Material Design", "iOS HIG", "Responsive Web"],
@@ -43,15 +45,28 @@ Your expertise includes:
 - Component-based design systems
 - Responsive web design (mobile-first approach)
 - User experience best practices
+- Frontend code review (React, Vue, Tailwind CSS, CSS-in-JS)
+
+Your dual role:
+1. **Design Creation**: Create comprehensive design specifications with exact values
+2. **Code Review**: Review frontend implementations to ensure they match your design specs
 
 When creating designs:
 1. Always start with user needs
-2. Create consistent design systems
+2. Create consistent design systems with exact values (hex codes, px/rem values, etc.)
 3. Ensure accessibility (color contrast, font sizes)
 4. Design for responsiveness (mobile, tablet, desktop)
 5. Provide clear specifications for developers
 
-Output design specifications as structured data that developers can implement.
+When reviewing frontend code:
+1. Compare actual code against your design specification
+2. Check if colors, fonts, spacing match exactly
+3. Verify CSS/Tailwind classes implement the design correctly
+4. Ensure responsive breakpoints are properly coded
+5. Give constructive, specific feedback with code references
+6. Be critical - score 9-10 only if implementation is nearly perfect
+
+Output design specifications and reviews as structured data that can be parsed.
 """
 
         super().__init__(
@@ -197,43 +212,67 @@ Make sure the design is:
 **Original Design Specification:**
 {original_design}
 
-**Frontend Implementation:**
+**Frontend Implementation (Code & Files):**
 {implementation}
 
-Review the implementation and provide feedback on:
+**IMPORTANT:** You must thoroughly review BOTH the design specification AND the actual frontend code implementation.
 
-1. **Design Fidelity**
-   - Does the implementation match the design specification?
-   - Are colors, typography, and spacing correct?
-   - Are components implemented as designed?
+Review the implementation and provide detailed feedback on:
 
-2. **User Experience**
+1. **Design Fidelity (Compare Design Spec vs Code)**
+   - Does the frontend CODE match the design specification exactly?
+   - Are the specified colors (hex codes) correctly implemented in the code?
+   - Are typography (fonts, sizes, weights) from the design spec properly used in CSS/Tailwind?
+   - Are spacing values (margins, padding) from the design system applied correctly?
+   - Are all designed components implemented in the code?
+   - Check component files - do they match the component specifications?
+
+2. **Code Implementation Quality**
+   - Are CSS/Tailwind classes correctly implementing the design?
+   - Are design tokens/variables properly defined and used?
+   - Are color values hard-coded or using the design system?
+   - Are font families correctly imported and applied?
+   - Are responsive breakpoints matching the design spec?
+
+3. **User Experience**
    - Is the implementation user-friendly?
    - Are interactions intuitive?
    - Is the flow logical?
+   - Are hover states, active states implemented?
 
-3. **Accessibility**
-   - Are ARIA labels present?
-   - Is color contrast sufficient?
-   - Is keyboard navigation supported?
+4. **Accessibility (Check Code)**
+   - Are ARIA labels present in the JSX/HTML?
+   - Is color contrast from design spec sufficient (check actual color values)?
+   - Is keyboard navigation supported in the code?
+   - Are semantic HTML elements used?
 
-4. **Responsiveness**
+5. **Responsiveness (Check Code)**
+   - Are responsive classes (Tailwind: md:, lg:, etc.) properly used?
    - Will this work on mobile, tablet, and desktop?
-   - Are breakpoints appropriate?
+   - Are breakpoints from design spec implemented?
 
-5. **Improvements Needed**
-   - List specific changes required
+6. **Improvements Needed**
+   - List specific code changes required to match design spec
    - Prioritize critical issues vs nice-to-haves
+   - Provide specific file names and line numbers if possible
+
+**Scoring Criteria (1-10):**
+- 10: Perfect implementation, matches design spec exactly
+- 9: Excellent, minor tweaks needed
+- 8: Good, a few improvements needed
+- 7: Acceptable, several issues to fix
+- 6: Below standard, significant changes required
+- 5 or below: Major redesign/reimplementation needed
 
 Output your review as JSON with:
-- "approved": boolean (true if implementation is acceptable, false if major changes needed)
-- "score": number 1-10 (overall quality score)
-- "feedback": array of strings (specific feedback items)
-- "critical_issues": array of strings (must-fix items)
+- "approved": boolean (true if score >= 8, false if major changes needed)
+- "score": number 1-10 (overall quality score - be critical!)
+- "feedback": array of strings (specific feedback items with code references)
+- "critical_issues": array of strings (must-fix items that don't match design spec)
 - "suggestions": array of strings (optional improvements)
 - "iteration": number (which review iteration this is)
 
-Be constructive and specific in your feedback."""
+Be constructive, specific, and reference actual code and design spec values in your feedback."""
 
         try:
             # Get review from Claude

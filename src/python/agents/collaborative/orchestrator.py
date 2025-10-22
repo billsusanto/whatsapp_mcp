@@ -55,12 +55,13 @@ class CollaborativeOrchestrator:
     QA_ID = "qa_engineer_001"
     DEVOPS_ID = "devops_001"
 
-    def __init__(self, mcp_servers: Dict):
+    def __init__(self, mcp_servers: Dict, user_phone_number: Optional[str] = None):
         """
         Initialize orchestrator with lazy agent initialization for resource efficiency
 
         Args:
             mcp_servers: Available MCP servers (WhatsApp, GitHub, Netlify)
+            user_phone_number: User's WhatsApp number for notifications (optional)
         """
         print("=" * 60)
         print("🎭 Initializing Multi-Agent Orchestrator with A2A Protocol")
@@ -68,6 +69,21 @@ class CollaborativeOrchestrator:
 
         self.mcp_servers = mcp_servers
         self.orchestrator_id = self.ORCHESTRATOR_ID
+        self.user_phone_number = user_phone_number
+
+        # Initialize WhatsApp client for notifications (if available)
+        self.whatsapp_client = None
+        if user_phone_number and "whatsapp" in mcp_servers:
+            try:
+                import sys
+                import os
+                sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                from whatsapp_mcp.client import WhatsAppClient
+                self.whatsapp_client = WhatsAppClient()
+                print(f"✅ WhatsApp notifications enabled for {user_phone_number}")
+            except Exception as e:
+                print(f"⚠️  WhatsApp notifications disabled: {e}")
+                self.whatsapp_client = None
 
         # Register orchestrator with A2A protocol so it can send messages
         from .models import AgentCard, AgentRole
@@ -103,9 +119,9 @@ class CollaborativeOrchestrator:
         self.planner_sdk = ClaudeSDK(available_mcp_servers={})  # No MCP tools needed for planning
 
         # Configuration
-        self.max_review_iterations = 5  # Maximum review/improvement iterations
-        self.min_quality_score = 8  # Minimum acceptable review score (out of 10)
-        self.max_build_retries = 3  # Maximum build retry attempts
+        self.max_review_iterations = 10  # Maximum review/improvement iterations
+        self.min_quality_score = 9  # Minimum acceptable review score (out of 10)
+        self.max_build_retries = 5  # Maximum build retry attempts
         self.enable_agent_caching = False  # Set to True to reuse agents (uses more memory but faster)
 
         print("\n✅ Multi-Agent Orchestrator Ready (Lazy Initialization):")
@@ -204,6 +220,41 @@ class CollaborativeOrchestrator:
             await self._cleanup_agent(agent_type)
 
     # ==========================================
+    # WHATSAPP NOTIFICATION HELPERS
+    # ==========================================
+
+    def _send_whatsapp_notification(self, message: str):
+        """
+        Send WhatsApp notification to user (non-blocking)
+
+        Args:
+            message: Notification message to send
+        """
+        if self.whatsapp_client and self.user_phone_number:
+            try:
+                self.whatsapp_client.send_message(self.user_phone_number, message)
+                print(f"📱 WhatsApp notification sent: {message[:50]}...")
+            except Exception as e:
+                print(f"⚠️  Failed to send WhatsApp notification: {e}")
+
+    def _get_agent_type_name(self, agent_id: str) -> str:
+        """Map agent_id to human-readable type name"""
+        if "designer" in agent_id:
+            return "UI/UX Designer"
+        elif "frontend" in agent_id:
+            return "Frontend Developer"
+        elif "code_reviewer" in agent_id:
+            return "Code Reviewer"
+        elif "qa" in agent_id:
+            return "QA Engineer"
+        elif "devops" in agent_id:
+            return "DevOps Engineer"
+        elif "orchestrator" in agent_id:
+            return "Orchestrator"
+        else:
+            return "Agent"
+
+    # ==========================================
     # A2A HELPER METHODS
     # ==========================================
 
@@ -228,7 +279,8 @@ class CollaborativeOrchestrator:
         task_description: str,
         metadata: Optional[Dict] = None,
         priority: str = "medium",
-        cleanup_after: bool = True
+        cleanup_after: bool = True,
+        notify_user: bool = True
     ) -> Dict:
         """
         Send a task to an agent via A2A protocol with lazy initialization
@@ -239,12 +291,21 @@ class CollaborativeOrchestrator:
             metadata: Optional metadata (design_spec, etc.)
             priority: Task priority
             cleanup_after: Whether to cleanup agent after task (default: True)
+            notify_user: Whether to send WhatsApp notifications (default: True)
 
         Returns:
             Task result dict
         """
         # Determine agent type from ID
         agent_type = self._get_agent_type_from_id(agent_id)
+        agent_type_name = self._get_agent_type_name(agent_id)
+
+        # Notify user: A2A communication starting
+        if notify_user:
+            self._send_whatsapp_notification(
+                f"🤖 Orchestrator → {agent_type_name}\n"
+                f"📋 Task: {task_description[:80]}..."
+            )
 
         # Spin up agent on-demand
         agent = await self._get_agent(agent_type)
@@ -265,6 +326,12 @@ class CollaborativeOrchestrator:
             task=task
         )
 
+        # Notify user: Task completed
+        if notify_user:
+            self._send_whatsapp_notification(
+                f"✅ Task Done by: {agent_type_name}"
+            )
+
         # Clean up agent after task completion (unless disabled)
         if cleanup_after:
             await self._cleanup_agent(agent_type)
@@ -275,7 +342,8 @@ class CollaborativeOrchestrator:
         self,
         agent_id: str,
         artifact: Dict,
-        cleanup_after: bool = True
+        cleanup_after: bool = True,
+        notify_user: bool = True
     ) -> Dict:
         """
         Request artifact review from an agent via A2A protocol with lazy initialization
@@ -284,12 +352,21 @@ class CollaborativeOrchestrator:
             agent_id: Reviewer agent ID
             artifact: Artifact to review
             cleanup_after: Whether to cleanup agent after review (default: True)
+            notify_user: Whether to send WhatsApp notifications (default: True)
 
         Returns:
             Review feedback dict
         """
         # Determine agent type from ID
         agent_type = self._get_agent_type_from_id(agent_id)
+        agent_type_name = self._get_agent_type_name(agent_id)
+
+        # Notify user: Review request
+        if notify_user:
+            self._send_whatsapp_notification(
+                f"🔍 Orchestrator → {agent_type_name}\n"
+                f"📋 Requesting review of implementation..."
+            )
 
         # Spin up agent on-demand
         agent = await self._get_agent(agent_type)
@@ -300,6 +377,16 @@ class CollaborativeOrchestrator:
             to_agent_id=agent.agent_card.agent_id,
             artifact=artifact
         )
+
+        # Notify user: Review completed
+        if notify_user:
+            score = review.get('score', 'N/A')
+            approved = review.get('approved', False)
+            status = "✅ Approved" if approved else "⚠️ Needs improvement"
+            self._send_whatsapp_notification(
+                f"✅ Review Done by: {agent_type_name}\n"
+                f"📊 Score: {score}/10 - {status}"
+            )
 
         # Clean up agent after review (unless disabled)
         if cleanup_after:
@@ -383,11 +470,11 @@ Analyze the user's request and determine:
   "reasoning": "Clear explanation of why you chose this workflow",
   "agents_needed": ["designer", "frontend", "code_reviewer", "qa", "devops"],
   "steps": [
-    "Designer creates comprehensive design specification",
-    "Frontend implements React components based on design",
+    "Designer creates comprehensive design specification and reviews frontend code",
+    "Frontend implements React, tailwind, other frontend library and components based on design",
     "Code Reviewer reviews code for security and quality",
     "QA Engineer tests functionality and accessibility",
-    "DevOps Engineer optimizes and deploys to Netlify",
+    "DevOps Engineer optimizes, pushes to github accoubt and deploys to Netlify",
     "Format and send response to user"
   ],
   "estimated_complexity": "simple" | "moderate" | "complex",
@@ -463,9 +550,23 @@ Respond with ONLY the JSON object, no other text."""
         print(f"📝 User request: {user_prompt}")
         print("\n" + "-" * 60)
 
+        # Send initial acknowledgment to user
+        self._send_whatsapp_notification(
+            f"🚀 Request received! Multi-agent team is processing...\n"
+            f"📝 Your request: {user_prompt[:100]}...\n\n"
+            f"I'll keep you updated as agents work on your project!"
+        )
+
         # Use AI to plan the workflow
         plan = await self._ai_plan_workflow(user_prompt)
         workflow_type = plan.get('workflow', 'full_build')
+
+        # Notify user about the chosen workflow
+        self._send_whatsapp_notification(
+            f"🧠 AI Planning Complete\n"
+            f"📋 Workflow: {workflow_type}\n"
+            f"💡 {plan.get('reasoning', 'Processing your request...')[:100]}..."
+        )
 
         print("\n" + "-" * 60)
 
@@ -530,7 +631,7 @@ Please try again or provide more details."""
             print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
             impl_result = await self._send_task_to_agent(
                 agent_id=self.FRONTEND_ID,
-                task_description=f"Implement webapp: {user_prompt}",
+                task_description=f"Implement webapp using next.js, react, tailwind and other frontend libraries: {user_prompt}",
                 metadata={"design_spec": design_spec},
                 priority="high",
                 cleanup_after=False  # Keep frontend alive for improvement iterations
@@ -563,7 +664,7 @@ Please try again or provide more details."""
                     cleanup_after=False  # Keep designer alive for multiple reviews
                 )
                 approved = review.get('approved', True)
-                score = review.get('score', 8)
+                score = review.get('score', 9)
                 feedback = review.get('feedback', [])
 
                 print(f"   Score: {score}/10 - {'✅ Approved' if approved else '⚠️ Needs improvement'}")
@@ -654,7 +755,7 @@ Please address all feedback and improve the implementation to meet the quality s
         # Step 1: Frontend fixes the issue (A2A)
         print("\n[Step 1/2] 💻 Frontend analyzing and fixing issue (A2A)...")
         fix_result = await self._send_task_to_agent(
-            agent_id=self.frontend.agent_card.agent_id,
+            agent_id=self.FRONTEND_ID,
             task_description=f"Analyze and fix this issue: {user_prompt}",
             priority="high"
         )
@@ -758,7 +859,7 @@ Respond with ONLY the deployment URL."""
         # Step 1: Designer creates design (A2A)
         print("\n[Step 1/1] 🎨 Designer creating design specification (A2A)...")
         design_result = await self._send_task_to_agent(
-            agent_id=self.designer.agent_card.agent_id,
+            agent_id=self.DESIGNER_ID,
             task_description=f"Create design specification for: {user_prompt}",
             priority="medium"
         )
@@ -924,7 +1025,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             # Execute based on AI decision (via A2A)
             if agent_choice == "designer":
                 design_result = await self._send_task_to_agent(
-                    agent_id=self.designer.agent_card.agent_id,
+                    agent_id=self.DESIGNER_ID,
                     task_description=task_desc
                 )
                 context['design_spec'] = design_result.get('design_spec', {})
@@ -932,7 +1033,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
 
             elif agent_choice == "frontend":
                 impl_result = await self._send_task_to_agent(
-                    agent_id=self.frontend.agent_card.agent_id,
+                    agent_id=self.FRONTEND_ID,
                     task_description=task_desc,
                     metadata={"design_spec": context['design_spec']} if context['design_spec'] else None
                 )
@@ -946,7 +1047,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
                         "implementation": context['implementation']
                     }
                     review = await self._request_review_from_agent(
-                        agent_id=self.designer.agent_card.agent_id,
+                        agent_id=self.DESIGNER_ID,
                         artifact=review_artifact
                     )
                     approved = review.get('approved', True)
@@ -959,7 +1060,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             elif agent_choice == "code_reviewer":
                 if context['implementation']:
                     review_result = await self._send_task_to_agent(
-                        agent_id=self.code_reviewer.agent_card.agent_id,
+                        agent_id=self.CODE_REVIEWER_ID,
                         task_description=task_desc,
                         metadata={"implementation": context['implementation']}
                     )
@@ -973,7 +1074,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             elif agent_choice == "qa":
                 if context['implementation']:
                     qa_result = await self._send_task_to_agent(
-                        agent_id=self.qa_engineer.agent_card.agent_id,
+                        agent_id=self.QA_ID,
                         task_description=task_desc,
                         metadata={
                             "implementation": context['implementation'],
@@ -990,7 +1091,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             elif agent_choice == "devops":
                 if context['implementation']:
                     devops_result = await self._send_task_to_agent(
-                        agent_id=self.devops.agent_card.agent_id,
+                        agent_id=self.DEVOPS_ID,
                         task_description=task_desc,
                         metadata={"implementation": context['implementation']}
                     )
@@ -1130,7 +1231,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
                 # Ask Frontend to fix the build error (via A2A)
                 print(f"\n🔧 Asking Frontend agent to fix build errors (A2A)...")
                 fix_result = await self._send_task_to_agent(
-                    agent_id=self.frontend.agent_card.agent_id,
+                    agent_id=self.FRONTEND_ID,
                     task_description=f"Fix these build errors:\n\n{build_error}\n\nOriginal task: {user_prompt}",
                     metadata={"design_spec": design_spec, "previous_implementation": current_implementation},
                     priority="high"

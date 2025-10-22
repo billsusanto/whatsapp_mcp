@@ -93,11 +93,11 @@ class AgentManager:
 
         if MULTI_AGENT_AVAILABLE and self.enable_netlify:
             try:
-                self.orchestrator = CollaborativeOrchestrator(
-                    mcp_servers=self.available_mcp_servers
-                )
+                # Note: Orchestrator is initialized without phone number
+                # Phone number will be set dynamically when processing messages
+                self.orchestrator = None
                 self.multi_agent_enabled = True
-                print("✅ Multi-agent orchestrator initialized")
+                print("✅ Multi-agent orchestrator enabled (will be initialized per user)")
             except Exception as e:
                 print(f"⚠️  Multi-agent orchestrator failed to initialize: {e}")
                 self.multi_agent_enabled = False
@@ -147,6 +147,23 @@ class AgentManager:
             print(f"   Routing to collaborative orchestrator...")
 
             try:
+                # Create or get orchestrator for this user
+                if self.orchestrator is None:
+                    self.orchestrator = CollaborativeOrchestrator(
+                        mcp_servers=self.available_mcp_servers,
+                        user_phone_number=phone_number
+                    )
+                elif self.orchestrator.user_phone_number != phone_number:
+                    # If different user, update phone number
+                    self.orchestrator.user_phone_number = phone_number
+                    # Reinitialize WhatsApp client with new number
+                    if "whatsapp" in self.available_mcp_servers:
+                        try:
+                            from whatsapp_mcp.client import WhatsAppClient
+                            self.orchestrator.whatsapp_client = WhatsAppClient()
+                        except Exception as e:
+                            print(f"⚠️  Failed to update WhatsApp client: {e}")
+
                 # Use multi-agent orchestrator
                 response = await self.orchestrator.build_webapp(message)
                 return response
