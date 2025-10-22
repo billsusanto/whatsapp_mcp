@@ -124,6 +124,15 @@ class CollaborativeOrchestrator:
         self.max_build_retries = 5  # Maximum build retry attempts
         self.enable_agent_caching = False  # Set to True to reuse agents (uses more memory but faster)
 
+        # Task State Management (for handling concurrent messages)
+        self.is_active = False  # Whether orchestrator is currently processing a task
+        self.current_phase = None  # Current workflow phase (design, implementation, review, deployment)
+        self.current_workflow = None  # Current workflow type (full_build, bug_fix, etc.)
+        self.original_prompt = None  # Original user request
+        self.accumulated_refinements = []  # List of refinements/modifications from user
+        self.current_implementation = None  # Current implementation being worked on
+        self.current_design_spec = None  # Current design specification
+
         print("\n✅ Multi-Agent Orchestrator Ready (Lazy Initialization):")
         print(f"   - Agents will be spun up on-demand when needed")
         print(f"   - Agents will be cleaned up after task completion")
@@ -253,6 +262,214 @@ class CollaborativeOrchestrator:
             return "Orchestrator"
         else:
             return "Agent"
+
+    # ==========================================
+    # TASK STATE & REFINEMENT HANDLING
+    # ==========================================
+
+    def get_status(self) -> Dict:
+        """
+        Get current orchestrator status
+
+        Returns:
+            Dict with status information
+        """
+        return {
+            "is_active": self.is_active,
+            "current_phase": self.current_phase,
+            "current_workflow": self.current_workflow,
+            "original_prompt": self.original_prompt,
+            "refinements_count": len(self.accumulated_refinements)
+        }
+
+    async def handle_refinement(self, refinement_message: str) -> str:
+        """
+        Handle a refinement/modification to the current task
+
+        This is called when a user sends a new message while a task is in progress,
+        and the message is classified as a modification rather than a new task.
+
+        Args:
+            refinement_message: User's refinement/modification message
+
+        Returns:
+            Response message to user
+        """
+        if not self.is_active:
+            return "⚠️ No active task to refine. Please start a new request."
+
+        print(f"\n🔄 [ORCHESTRATOR] Processing refinement: {refinement_message}")
+        print(f"   Current phase: {self.current_phase}")
+        print(f"   Current workflow: {self.current_workflow}")
+
+        # Add to accumulated refinements
+        self.accumulated_refinements.append(refinement_message)
+
+        # Send acknowledgment to user
+        self._send_whatsapp_notification(
+            f"✅ Refinement received!\n\n"
+            f"💬 Your update: {refinement_message[:100]}...\n\n"
+            f"I'll incorporate this into the current task.\n"
+            f"Current phase: {self.current_phase or 'processing'}..."
+        )
+
+        # Handle based on current phase
+        if self.current_phase == "design":
+            # During design phase - ask designer to incorporate refinement
+            return await self._refine_during_design(refinement_message)
+
+        elif self.current_phase == "implementation":
+            # During implementation - ask frontend to incorporate changes
+            return await self._refine_during_implementation(refinement_message)
+
+        elif self.current_phase == "review":
+            # During review phase - note the refinement for next iteration
+            return await self._refine_during_review(refinement_message)
+
+        elif self.current_phase == "deployment":
+            # During deployment - queue for post-deployment update
+            self._send_whatsapp_notification(
+                f"📝 Noted! Since we're currently deploying, I'll apply this refinement "
+                f"in a follow-up update after the current deployment completes."
+            )
+            return "refinement_queued_for_post_deployment"
+
+        else:
+            # Unknown phase - queue the refinement
+            return "refinement_queued"
+
+    async def _refine_during_design(self, refinement: str) -> str:
+        """Handle refinement during design phase"""
+        print(f"🎨 [REFINEMENT] Updating design with: {refinement}")
+
+        # Ask designer to update the design spec
+        try:
+            updated_design = await self._send_task_to_agent(
+                agent_id=self.DESIGNER_ID,
+                task_description=f"""Update the current design specification with this refinement:
+
+Original request: {self.original_prompt}
+Current design: {self.current_design_spec}
+
+User refinement: {refinement}
+
+Please update the design specification to incorporate this change while maintaining consistency.""",
+                cleanup_after=False,
+                notify_user=True
+            )
+
+            # Update current design spec
+            self.current_design_spec = updated_design.get('design_spec', self.current_design_spec)
+
+            self._send_whatsapp_notification(
+                f"✅ Design updated with your refinement!\n"
+                f"The updated design will be used for implementation."
+            )
+
+            return "design_refined"
+
+        except Exception as e:
+            print(f"❌ Error refining design: {e}")
+            return f"error_refining_design: {str(e)}"
+
+    async def _refine_during_implementation(self, refinement: str) -> str:
+        """Handle refinement during implementation phase"""
+        print(f"💻 [REFINEMENT] Updating implementation with: {refinement}")
+
+        # Ask frontend to update the implementation
+        try:
+            updated_impl = await self._send_task_to_agent(
+                agent_id=self.FRONTEND_ID,
+                task_description=f"""Update the current implementation with this refinement:
+
+Original request: {self.original_prompt}
+Design spec: {self.current_design_spec}
+Current implementation: {self.current_implementation}
+
+User refinement: {refinement}
+
+Please update the implementation to incorporate this change.""",
+                metadata={
+                    "design_spec": self.current_design_spec,
+                    "current_implementation": self.current_implementation
+                },
+                cleanup_after=False,
+                notify_user=True
+            )
+
+            # Update current implementation
+            self.current_implementation = updated_impl.get('implementation', self.current_implementation)
+
+            self._send_whatsapp_notification(
+                f"✅ Implementation updated with your refinement!\n"
+                f"The code has been modified accordingly."
+            )
+
+            return "implementation_refined"
+
+        except Exception as e:
+            print(f"❌ Error refining implementation: {e}")
+            return f"error_refining_implementation: {str(e)}"
+
+    async def _refine_during_review(self, refinement: str) -> str:
+        """Handle refinement during review phase"""
+        print(f"🔍 [REFINEMENT] Noting refinement during review: {refinement}")
+
+        # Add to refinements - will be applied in next iteration
+        self._send_whatsapp_notification(
+            f"📝 Refinement noted!\n"
+            f"I'll make sure this is incorporated in the next iteration of the code."
+        )
+
+        return "refinement_noted_for_next_iteration"
+
+    async def handle_status_query(self) -> str:
+        """
+        Handle a status query from the user
+
+        Returns:
+            Status message
+        """
+        if not self.is_active:
+            return "ℹ️ No active task at the moment."
+
+        status_msg = f"""📊 Current Task Status:
+
+🎯 Original Request: {self.original_prompt[:100]}...
+
+📍 Current Phase: {self.current_phase or 'Processing'}
+🔧 Workflow Type: {self.current_workflow or 'Unknown'}
+📝 Refinements Applied: {len(self.accumulated_refinements)}
+
+⏳ The multi-agent team is actively working on your request!"""
+
+        return status_msg
+
+    async def handle_cancellation(self) -> str:
+        """
+        Handle a task cancellation request from the user
+
+        Returns:
+            Cancellation confirmation message
+        """
+        if not self.is_active:
+            return "ℹ️ No active task to cancel."
+
+        print(f"\n🛑 [ORCHESTRATOR] Cancelling current task: {self.original_prompt}")
+
+        # Clean up all active agents
+        await self._cleanup_all_active_agents()
+
+        # Reset state
+        self.is_active = False
+        self.current_phase = None
+        self.current_workflow = None
+        self.original_prompt = None
+        self.accumulated_refinements = []
+        self.current_implementation = None
+        self.current_design_spec = None
+
+        return "🛑 Task cancelled. The multi-agent team has stopped working on the previous request."
 
     # ==========================================
     # A2A HELPER METHODS
@@ -550,6 +767,12 @@ Respond with ONLY the JSON object, no other text."""
         print(f"📝 User request: {user_prompt}")
         print("\n" + "-" * 60)
 
+        # Mark orchestrator as active and set state
+        self.is_active = True
+        self.original_prompt = user_prompt
+        self.accumulated_refinements = []
+        self.current_phase = "planning"
+
         # Send initial acknowledgment to user
         self._send_whatsapp_notification(
             f"🚀 Request received! Multi-agent team is processing...\n"
@@ -560,6 +783,7 @@ Respond with ONLY the JSON object, no other text."""
         # Use AI to plan the workflow
         plan = await self._ai_plan_workflow(user_prompt)
         workflow_type = plan.get('workflow', 'full_build')
+        self.current_workflow = workflow_type
 
         # Notify user about the chosen workflow
         self._send_whatsapp_notification(
@@ -573,20 +797,29 @@ Respond with ONLY the JSON object, no other text."""
         try:
             # Route to appropriate workflow based on AI decision
             if workflow_type == "redeploy":
-                return await self._workflow_redeploy(user_prompt, plan)
+                result = await self._workflow_redeploy(user_prompt, plan)
             elif workflow_type == "bug_fix":
-                return await self._workflow_bug_fix(user_prompt, plan)
+                result = await self._workflow_bug_fix(user_prompt, plan)
             elif workflow_type == "design_only":
-                return await self._workflow_design_only(user_prompt, plan)
+                result = await self._workflow_design_only(user_prompt, plan)
             elif workflow_type == "custom":
-                return await self._workflow_custom(user_prompt, plan)
+                result = await self._workflow_custom(user_prompt, plan)
             else:  # full_build (default)
-                return await self._workflow_full_build(user_prompt, plan)
+                result = await self._workflow_full_build(user_prompt, plan)
+
+            # Mark as completed
+            self.is_active = False
+            self.current_phase = None
+            return result
 
         except Exception as e:
             print(f"\n❌ [ORCHESTRATOR] Error during processing: {e}")
             import traceback
             traceback.print_exc()
+
+            # Mark as completed (even with error)
+            self.is_active = False
+            self.current_phase = None
 
             return f"""❌ Request encountered an error:
 
@@ -610,6 +843,7 @@ Please try again or provide more details."""
 
         try:
             # Step 1: Designer creates design specification (A2A - keep agent alive for reviews)
+            self.current_phase = "design"
             print("\n[Step 1/5] 🎨 Designer creating design specification (A2A)...")
             design_result = await self._send_task_to_agent(
                 agent_id=self.DESIGNER_ID,
@@ -618,6 +852,7 @@ Please try again or provide more details."""
                 cleanup_after=False  # Keep designer alive for review iterations
             )
             design_spec = design_result.get('design_spec', {})
+            self.current_design_spec = design_spec  # Store for refinements
 
             # Extract design style safely
             if isinstance(design_spec, dict):
@@ -628,6 +863,7 @@ Please try again or provide more details."""
             print(f"✓ Design completed via A2A")
 
             # Step 2: Frontend implements design (A2A - keep agent alive for improvements)
+            self.current_phase = "implementation"
             print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
             impl_result = await self._send_task_to_agent(
                 agent_id=self.FRONTEND_ID,
@@ -637,11 +873,13 @@ Please try again or provide more details."""
                 cleanup_after=False  # Keep frontend alive for improvement iterations
             )
             implementation = impl_result.get('implementation', {})
+            self.current_implementation = implementation  # Store for refinements
             framework = implementation.get('framework', 'react')
 
             print(f"✓ Implementation completed via A2A: {framework}")
 
             # Step 3: Quality verification loop - ensure score >= 8/10
+            self.current_phase = "review"
             print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10, via A2A)...".format(self.min_quality_score))
 
             review_iteration = 0
@@ -703,14 +941,17 @@ Please address all feedback and improve the implementation to meet the quality s
                     cleanup_after=False  # Keep frontend alive for multiple improvements
                 )
                 current_implementation = improvement_result.get('implementation', current_implementation)
+                self.current_implementation = current_implementation  # Update for refinements
                 print(f"   ✓ Frontend provided improved implementation via A2A")
 
             # Use the final implementation (after quality loop)
             implementation = current_implementation
+            self.current_implementation = implementation  # Final update
 
             print(f"\n✓ Quality verification completed via A2A: Score {score}/10 after {review_iteration} iteration(s)")
 
             # Step 4: Deploy to Netlify with build verification and retry
+            self.current_phase = "deployment"
             print("\n[Step 4/5] 🚀 Deploying to Netlify with build verification...")
             deployment_result = await self._deploy_with_retry(
                 user_prompt=user_prompt,

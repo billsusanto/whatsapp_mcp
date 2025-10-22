@@ -105,6 +105,8 @@ IMPORTANT:
         self.max_tokens = 4096
         self.available_mcp_servers = available_mcp_servers or {}
         self.client = None
+        self._is_initialized = False
+        self._is_closed = False
 
         print(f"Claude SDK initialized with model: {self.model} (Sonnet 4.5)")
         print(f"Max tokens: {self.max_tokens} (memory optimized)")
@@ -170,6 +172,7 @@ IMPORTANT:
             try:
                 self.client = ClaudeSDKClient(options=options)
                 await self.client.__aenter__()
+                self._is_initialized = True
                 print("✅ Claude SDK client initialized successfully")
                 print(f"   Model: {self.model} (Sonnet 4.5)")
                 print(f"   Active MCP servers: {list(mcp_servers.keys()) if mcp_servers else 'None'}")
@@ -268,9 +271,24 @@ IMPORTANT:
 
     async def close(self):
         """Clean up the client"""
-        if self.client:
+        # Guard against double-close
+        if self._is_closed:
+            return
+
+        if self.client and self._is_initialized:
             try:
                 await self.client.__aexit__(None, None, None)
+                self._is_closed = True
                 print("Claude SDK client closed")
+            except RuntimeError as e:
+                # Suppress cancel scope errors - these are expected during shutdown
+                if "cancel scope" in str(e).lower():
+                    self._is_closed = True
+                    print("Claude SDK client closed (suppressed cancel scope cleanup)")
+                else:
+                    print(f"Error closing Claude SDK client: {str(e)}")
+                    raise
             except Exception as e:
                 print(f"Error closing Claude SDK client: {str(e)}")
+                # Still mark as closed to prevent retry
+                self._is_closed = True

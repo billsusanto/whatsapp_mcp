@@ -89,15 +89,12 @@ class AgentManager:
 
         # 4. Initialize Multi-Agent Orchestrator (Phase 1.5+)
         self.multi_agent_enabled = False
-        self.orchestrator = None
+        self.orchestrators: Dict[str, any] = {}  # Per-user orchestrators
 
         if MULTI_AGENT_AVAILABLE and self.enable_netlify:
             try:
-                # Note: Orchestrator is initialized without phone number
-                # Phone number will be set dynamically when processing messages
-                self.orchestrator = None
                 self.multi_agent_enabled = True
-                print("✅ Multi-agent orchestrator enabled (will be initialized per user)")
+                print("✅ Multi-agent orchestrator enabled (per-user instances)")
             except Exception as e:
                 print(f"⚠️  Multi-agent orchestrator failed to initialize: {e}")
                 self.multi_agent_enabled = False
@@ -129,10 +126,10 @@ class AgentManager:
 
     async def process_message(self, phone_number: str, message: str) -> str:
         """
-        Process a message by routing to the appropriate agent
+        Process a message with smart context merging
 
-        Phase 1.5: Routes to multi-agent orchestrator for webapp requests,
-        single agent for regular conversations.
+        Routes to multi-agent orchestrator for webapp requests, handles refinements
+        intelligently when a task is already in progress.
 
         Args:
             phone_number: User's phone number
@@ -141,36 +138,96 @@ class AgentManager:
         Returns:
             Agent's response
         """
-        # Phase 1.5: Check if this is a webapp build request using AI detection
+        # Check if this user has an active orchestrator
+        active_orchestrator = self.orchestrators.get(phone_number)
+
+        if active_orchestrator and active_orchestrator.is_active:
+            # Orchestrator is currently processing a task
+            print(f"🔄 [MANAGER] Active orchestrator found for {phone_number}")
+            print(f"   Current phase: {active_orchestrator.current_phase}")
+            print(f"   Classifying new message...")
+
+            # Use AI to classify the incoming message
+            message_type = await self._classify_message(
+                message=message,
+                active_task=active_orchestrator.original_prompt,
+                current_phase=active_orchestrator.current_phase
+            )
+
+            print(f"   Message classification: {message_type}")
+
+            # Route based on classification
+            if message_type == "refinement":
+                # User is refining/modifying the current task
+                print(f"   → Routing to orchestrator.handle_refinement()")
+                response = await active_orchestrator.handle_refinement(message)
+                return f"✅ Refinement applied to ongoing task.\n\n{response if isinstance(response, str) and response.startswith('❌') else ''}"
+
+            elif message_type == "status_query":
+                # User is asking for status
+                print(f"   → Routing to orchestrator.handle_status_query()")
+                return await active_orchestrator.handle_status_query()
+
+            elif message_type == "cancellation":
+                # User wants to cancel current task
+                print(f"   → Routing to orchestrator.handle_cancellation()")
+                response = await active_orchestrator.handle_cancellation()
+                # Clean up orchestrator
+                del self.orchestrators[phone_number]
+                return response
+
+            elif message_type == "new_task":
+                # User wants to start a completely new task
+                print(f"   → User requesting new task while one is active")
+                # Ask for confirmation
+                return """⚠️ The multi-agent team is currently working on your previous request:
+
+🎯 Active task: {}
+
+Would you like to:
+1. Continue with the current task (send 'continue')
+2. Cancel it and start fresh (send 'cancel')
+3. Wait for it to complete
+
+Please let me know!""".format(active_orchestrator.original_prompt[:100])
+
+            else:
+                # Unclassified - treat as conversation
+                print(f"   → Unclassified message, treating as general conversation")
+                agent = self.get_or_create_agent(phone_number)
+                return await agent.process_message(message)
+
+        # No active orchestrator - check if this is a new webapp request
         if self.multi_agent_enabled and await self._is_webapp_request(message):
-            print(f"🎨 Multi-agent request detected from {phone_number}")
-            print(f"   Routing to collaborative orchestrator...")
+            print(f"🎨 [MANAGER] Multi-agent request detected from {phone_number}")
+            print(f"   Creating new orchestrator instance...")
 
             try:
-                # Create or get orchestrator for this user
-                if self.orchestrator is None:
-                    self.orchestrator = CollaborativeOrchestrator(
-                        mcp_servers=self.available_mcp_servers,
-                        user_phone_number=phone_number
-                    )
-                elif self.orchestrator.user_phone_number != phone_number:
-                    # If different user, update phone number
-                    self.orchestrator.user_phone_number = phone_number
-                    # Reinitialize WhatsApp client with new number
-                    if "whatsapp" in self.available_mcp_servers:
-                        try:
-                            from whatsapp_mcp.client import WhatsAppClient
-                            self.orchestrator.whatsapp_client = WhatsAppClient()
-                        except Exception as e:
-                            print(f"⚠️  Failed to update WhatsApp client: {e}")
+                # Create new orchestrator for this user
+                orchestrator = CollaborativeOrchestrator(
+                    mcp_servers=self.available_mcp_servers,
+                    user_phone_number=phone_number
+                )
+                self.orchestrators[phone_number] = orchestrator
 
                 # Use multi-agent orchestrator
-                response = await self.orchestrator.build_webapp(message)
+                response = await orchestrator.build_webapp(message)
+
+                # Clean up orchestrator if completed
+                if not orchestrator.is_active:
+                    del self.orchestrators[phone_number]
+
                 return response
+
             except Exception as e:
                 print(f"❌ Multi-agent orchestrator error: {e}")
                 import traceback
                 traceback.print_exc()
+
+                # Clean up failed orchestrator
+                if phone_number in self.orchestrators:
+                    del self.orchestrators[phone_number]
+
                 # Fallback to single agent
                 print("   Falling back to single agent...")
 
@@ -268,6 +325,118 @@ Be precise. Only return true if the user is clearly requesting webapp/website de
             # Fallback to keyword matching only on error
             webapp_keywords = ["build", "create", "make", "website", "webapp", "app", "site"]
             return any(keyword in message.lower() for keyword in webapp_keywords)
+
+    async def _classify_message(self, message: str, active_task: str, current_phase: str) -> str:
+        """
+        Classify a message when an orchestrator is already active
+
+        Uses AI to determine if the user is:
+        - Refining/modifying the current task
+        - Asking for status
+        - Wanting to cancel
+        - Starting a completely new task
+        - Just having a conversation
+
+        Args:
+            message: New message from user
+            active_task: The currently active task description
+            current_phase: Current phase of the orchestrator (design, implementation, review, deployment)
+
+        Returns:
+            Message type: "refinement", "status_query", "cancellation", "new_task", or "conversation"
+        """
+        classification_prompt = f"""You are a message classifier for a multi-agent webapp development system.
+
+**Context:**
+- An AI team is currently working on: "{active_task}"
+- Current phase: {current_phase}
+
+**New message from user:**
+"{message}"
+
+**Your Task:**
+Classify this message into ONE of these categories:
+
+1. **refinement** - User wants to modify/refine the current task
+   Examples: "Make it blue", "Add a login feature", "Change the colors", "Use a different font"
+
+2. **status_query** - User is asking about progress/status
+   Examples: "How's it going?", "What's the status?", "Are you done yet?", "What are you working on?"
+
+3. **cancellation** - User wants to cancel/stop the current task
+   Examples: "Cancel", "Stop", "Never mind", "Forget it", "Cancel this"
+
+4. **new_task** - User wants to start a completely different, unrelated task
+   Examples: "Build me a booking system" (when currently building a todo app)
+
+5. **conversation** - General conversation, unrelated to the task
+   Examples: "Hello", "Thanks", "How are you?"
+
+**Important Guidelines:**
+- If the message is requesting changes/additions to the CURRENT task → "refinement"
+- If the message is about a DIFFERENT task entirely → "new_task"
+- If unclear, default to "refinement" if it could be related to current task
+- Short messages like "blue", "add auth", "change that" → "refinement"
+
+**Output Format (JSON):**
+{{
+  "classification": "refinement" | "status_query" | "cancellation" | "new_task" | "conversation",
+  "confidence": 0.0-1.0,
+  "reasoning": "Brief explanation"
+}}"""
+
+        try:
+            # Create a temporary Claude SDK for classification
+            from sdk.claude_sdk import ClaudeSDK
+            classifier_sdk = ClaudeSDK(available_mcp_servers={})
+
+            response = await classifier_sdk.send_message(classification_prompt)
+            await classifier_sdk.close()
+
+            # Extract JSON
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                result = json.loads(response)
+            else:
+                # Fallback: default to conversation
+                print(f"⚠️  Could not parse classification response")
+                return "conversation"
+
+            classification = result.get('classification', 'conversation')
+            confidence = result.get('confidence', 0.0)
+            reasoning = result.get('reasoning', 'N/A')
+
+            print(f"   🧠 Message classification: {classification} (confidence: {confidence:.2f})")
+            print(f"   💭 Reasoning: {reasoning}")
+
+            return classification
+
+        except Exception as e:
+            print(f"⚠️  Error in message classification: {e}")
+            # Fallback heuristics
+            message_lower = message.lower()
+
+            # Check for status queries
+            status_keywords = ["status", "progress", "done", "how's it going", "what's happening"]
+            if any(kw in message_lower for kw in status_keywords):
+                return "status_query"
+
+            # Check for cancellation
+            cancel_keywords = ["cancel", "stop", "forget", "never mind"]
+            if any(kw in message_lower for kw in cancel_keywords):
+                return "cancellation"
+
+            # Default to refinement if short (likely a modification)
+            if len(message.split()) <= 5:
+                return "refinement"
+
+            # Otherwise treat as conversation
+            return "conversation"
 
     async def stream_response(self, phone_number: str, message: str):
         """
