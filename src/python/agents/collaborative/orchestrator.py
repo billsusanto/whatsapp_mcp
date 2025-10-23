@@ -133,6 +133,12 @@ class CollaborativeOrchestrator:
         self.current_implementation = None  # Current implementation being worked on
         self.current_design_spec = None  # Current design specification
 
+        # Detailed task tracking for status queries
+        self.current_agent_working = None  # Which agent is currently active
+        self.current_task_description = None  # What task is being executed
+        self.workflow_steps_completed = []  # List of completed steps
+        self.workflow_steps_total = 0  # Total number of steps in workflow
+
         print("\n✅ Multi-Agent Orchestrator Ready (Lazy Initialization):")
         print(f"   - Agents will be spun up on-demand when needed")
         print(f"   - Agents will be cleaned up after task completion")
@@ -269,17 +275,38 @@ class CollaborativeOrchestrator:
 
     def get_status(self) -> Dict:
         """
-        Get current orchestrator status
+        Get current orchestrator status with detailed agent tracking
 
         Returns:
-            Dict with status information
+            Dict with comprehensive status information
         """
+        # Get active agent names
+        active_agent_names = [
+            self._get_agent_type_name(agent.agent_card.agent_id)
+            for agent_type, agent in self._active_agents.items()
+        ] if self._active_agents else []
+
+        # Calculate progress
+        progress_percent = 0
+        if self.workflow_steps_total > 0:
+            progress_percent = int((len(self.workflow_steps_completed) / self.workflow_steps_total) * 100)
+
         return {
             "is_active": self.is_active,
             "current_phase": self.current_phase,
             "current_workflow": self.current_workflow,
             "original_prompt": self.original_prompt,
-            "refinements_count": len(self.accumulated_refinements)
+            "refinements_count": len(self.accumulated_refinements),
+            # New detailed tracking fields
+            "current_agent_working": self._get_agent_type_name(self.current_agent_working) if self.current_agent_working else None,
+            "current_task_description": self.current_task_description,
+            "active_agents": active_agent_names,
+            "workflow_progress": {
+                "completed": len(self.workflow_steps_completed),
+                "total": self.workflow_steps_total,
+                "percent": progress_percent,
+                "completed_steps": self.workflow_steps_completed[-3:] if self.workflow_steps_completed else []
+            }
         }
 
     async def handle_refinement(self, refinement_message: str) -> str:
@@ -425,25 +452,96 @@ Please update the implementation to incorporate this change.""",
 
     async def handle_status_query(self) -> str:
         """
-        Handle a status query from the user
+        Handle a status query from the user - shows detailed agent activities
 
         Returns:
-            Status message
+            Detailed status message with agent-specific information
         """
         if not self.is_active:
             return "ℹ️ No active task at the moment."
 
-        status_msg = f"""📊 Current Task Status:
+        # Build status message with detailed agent information
+        status_parts = []
+        status_parts.append("📊 *DETAILED TASK STATUS*")
+        status_parts.append("=" * 40)
 
-🎯 Original Request: {self.original_prompt[:100]}...
+        # Original request
+        status_parts.append(f"\n🎯 *Your Request:*")
+        status_parts.append(f"   {self.original_prompt[:150]}{'...' if len(self.original_prompt) > 150 else ''}")
 
-📍 Current Phase: {self.current_phase or 'Processing'}
-🔧 Workflow Type: {self.current_workflow or 'Unknown'}
-📝 Refinements Applied: {len(self.accumulated_refinements)}
+        # Workflow information
+        status_parts.append(f"\n🔧 *Workflow Details:*")
+        status_parts.append(f"   • Type: {self.current_workflow or 'Custom'}")
+        status_parts.append(f"   • Phase: {self._get_phase_emoji(self.current_phase)} {self.current_phase or 'Processing'}")
 
-⏳ The multi-agent team is actively working on your request!"""
+        # Progress tracking
+        if self.workflow_steps_total > 0:
+            completed_count = len(self.workflow_steps_completed)
+            progress_percent = int((completed_count / self.workflow_steps_total) * 100)
+            progress_bar = self._create_progress_bar(progress_percent)
+            status_parts.append(f"   • Progress: {progress_bar} {progress_percent}% ({completed_count}/{self.workflow_steps_total} steps)")
 
-        return status_msg
+        # Active agent details
+        status_parts.append(f"\n🤖 *Currently Active Agent:*")
+        if self.current_agent_working:
+            agent_name = self._get_agent_type_name(self.current_agent_working)
+            status_parts.append(f"   👉 *{agent_name}*")
+
+            if self.current_task_description:
+                task_preview = self.current_task_description[:120]
+                status_parts.append(f"   📋 Task: {task_preview}{'...' if len(self.current_task_description) > 120 else ''}")
+
+            status_parts.append(f"   ⏳ Status: Working...")
+        else:
+            status_parts.append(f"   🔄 Coordinating between agents...")
+
+        # Show all active agents
+        if self._active_agents:
+            active_agent_names = [self._get_agent_type_name(agent_id)
+                                 for agent_type, agent in self._active_agents.items()
+                                 for agent_id in [agent.agent_card.agent_id]]
+            status_parts.append(f"\n💼 *Agents Currently Deployed:*")
+            for agent_name in active_agent_names:
+                status_parts.append(f"   • {agent_name}")
+
+        # Completed steps
+        if self.workflow_steps_completed:
+            status_parts.append(f"\n✅ *Completed Steps:*")
+            for step in self.workflow_steps_completed[-3:]:  # Show last 3 steps
+                status_parts.append(f"   ✓ {step}")
+            if len(self.workflow_steps_completed) > 3:
+                status_parts.append(f"   ... and {len(self.workflow_steps_completed) - 3} more")
+
+        # Refinements
+        if self.accumulated_refinements:
+            status_parts.append(f"\n📝 *Refinements Applied:* {len(self.accumulated_refinements)}")
+            if self.accumulated_refinements:
+                last_refinement = self.accumulated_refinements[-1][:80]
+                status_parts.append(f"   Latest: {last_refinement}...")
+
+        # Footer
+        status_parts.append(f"\n{'=' * 40}")
+        status_parts.append("⏳ Your request is being actively processed!")
+        status_parts.append("💡 Send updates anytime - I'll incorporate them!")
+
+        return "\n".join(status_parts)
+
+    def _get_phase_emoji(self, phase: str) -> str:
+        """Get emoji for current phase"""
+        phase_emojis = {
+            "planning": "🧠",
+            "design": "🎨",
+            "implementation": "💻",
+            "review": "🔍",
+            "deployment": "🚀"
+        }
+        return phase_emojis.get(phase, "⚙️")
+
+    def _create_progress_bar(self, percent: int, length: int = 20) -> str:
+        """Create a visual progress bar"""
+        filled = int((percent / 100) * length)
+        bar = "█" * filled + "░" * (length - filled)
+        return f"[{bar}]"
 
     async def handle_cancellation(self) -> str:
         """
@@ -517,6 +615,10 @@ Please update the implementation to incorporate this change.""",
         agent_type = self._get_agent_type_from_id(agent_id)
         agent_type_name = self._get_agent_type_name(agent_id)
 
+        # Update current agent tracking for status queries
+        self.current_agent_working = agent_id
+        self.current_task_description = task_description
+
         # Notify user: A2A communication starting
         if notify_user:
             self._send_whatsapp_notification(
@@ -542,6 +644,14 @@ Please update the implementation to incorporate this change.""",
             to_agent_id=agent.agent_card.agent_id,
             task=task
         )
+
+        # Mark step as completed
+        step_name = f"{agent_type_name}: {task_description[:60]}{'...' if len(task_description) > 60 else ''}"
+        self.workflow_steps_completed.append(step_name)
+
+        # Clear current agent tracking
+        self.current_agent_working = None
+        self.current_task_description = None
 
         # Notify user: Task completed
         if notify_user:
@@ -578,6 +688,10 @@ Please update the implementation to incorporate this change.""",
         agent_type = self._get_agent_type_from_id(agent_id)
         agent_type_name = self._get_agent_type_name(agent_id)
 
+        # Update current agent tracking for status queries
+        self.current_agent_working = agent_id
+        self.current_task_description = "Reviewing implementation for quality and design adherence"
+
         # Notify user: Review request
         if notify_user:
             self._send_whatsapp_notification(
@@ -595,9 +709,17 @@ Please update the implementation to incorporate this change.""",
             artifact=artifact
         )
 
+        # Mark step as completed
+        score = review.get('score', 'N/A')
+        step_name = f"{agent_type_name}: Review completed (Score: {score}/10)"
+        self.workflow_steps_completed.append(step_name)
+
+        # Clear current agent tracking
+        self.current_agent_working = None
+        self.current_task_description = None
+
         # Notify user: Review completed
         if notify_user:
-            score = review.get('score', 'N/A')
             approved = review.get('approved', False)
             status = "✅ Approved" if approved else "⚠️ Needs improvement"
             self._send_whatsapp_notification(
@@ -773,6 +895,12 @@ Respond with ONLY the JSON object, no other text."""
         self.accumulated_refinements = []
         self.current_phase = "planning"
 
+        # Initialize workflow tracking for detailed status
+        self.current_agent_working = None
+        self.current_task_description = "Planning workflow with AI..."
+        self.workflow_steps_completed = []
+        self.workflow_steps_total = 0  # Will be set based on workflow type
+
         # Send initial acknowledgment to user
         self._send_whatsapp_notification(
             f"🚀 Request received! Multi-agent team is processing...\n"
@@ -837,6 +965,10 @@ Please try again or provide more details."""
     async def _workflow_full_build(self, user_prompt: str, plan: Dict = None) -> str:
         """Full build workflow: Designer → Frontend → Review → Deploy (via A2A)"""
         print(f"\n🏗️  Starting FULL BUILD workflow (A2A Protocol)")
+
+        # Set total steps for progress tracking
+        # Design (1) + Implementation (1) + Review iterations (variable, avg 2) + Deploy (1) + Format (1) = ~6 steps
+        self.workflow_steps_total = 6
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -990,6 +1122,9 @@ Please address all feedback and improve the implementation to meet the quality s
         """Bug fix workflow: Frontend fixes code → Deploy (via A2A)"""
         print(f"\n🔧 Starting BUG FIX workflow (A2A Protocol)")
 
+        # Set total steps for progress tracking: Fix (1) + Deploy (1) = 2 steps
+        self.workflow_steps_total = 2
+
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
@@ -1042,6 +1177,9 @@ Please address all feedback and improve the implementation to meet the quality s
         """Redeploy workflow: Just deploy existing code"""
         print(f"\n🚀 Starting REDEPLOY workflow")
 
+        # Set total steps for progress tracking: Deploy only = 1 step
+        self.workflow_steps_total = 1
+
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
@@ -1093,6 +1231,9 @@ Respond with ONLY the deployment URL."""
     async def _workflow_design_only(self, user_prompt: str, plan: Dict = None) -> str:
         """Design only workflow: Designer creates design spec (via A2A)"""
         print(f"\n🎨 Starting DESIGN ONLY workflow (A2A Protocol)")
+
+        # Set total steps for progress tracking: Design only = 1 step
+        self.workflow_steps_total = 1
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -1230,6 +1371,9 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
 
         agents_needed = plan.get('agents_needed', [])
         steps = plan.get('steps', [])
+
+        # Set total steps for progress tracking based on planned steps
+        self.workflow_steps_total = len(steps) if steps else 5
 
         print(f"\n🤖 Agents available: {', '.join(agents_needed)}")
         print(f"📝 Steps planned: {len(steps)}")
@@ -1608,7 +1752,7 @@ Respond in this format:
 
 ⚙️ Technical:
   • Framework: {framework}
-  • Build tool: Vite
+  • Build tool: Next.js
   • Deployed on Netlify{build_status}
 
 🤖 Built by AI Agent Team (A2A Protocol):

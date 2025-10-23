@@ -29,9 +29,9 @@ class FrontendDeveloperAgent(BaseAgent):
             ],
             skills={
                 "languages": ["JavaScript", "TypeScript", "HTML", "CSS"],
-                "frameworks": ["React", "Vue", "Next.js", "Vite"],
+                "frameworks": ["React", "Vue", "Next.js"],
                 "styling": ["CSS", "Tailwind", "CSS-in-JS"],
-                "tools": ["npm", "Vite", "Webpack", "Git"]
+                "tools": ["npm", "Next.js", "Webpack", "Git"]
             }
         )
 
@@ -46,7 +46,7 @@ Your expertise includes:
 - Responsive design (mobile-first approach)
 - Web performance optimization (code splitting, lazy loading, memoization)
 - Accessibility (WCAG 2.1 AA/AAA compliance, ARIA, semantic HTML)
-- Build tools (Vite, Webpack) and version control (Git, GitHub)
+- Build tools (Next.js, Webpack) and version control (Git, GitHub)
 
 **CRITICAL CODING PRINCIPLES:**
 
@@ -127,13 +127,430 @@ Always implement designs with pixel-perfect accuracy while maintaining code qual
             mcp_servers=mcp_servers
         )
 
+    def _build_research_prompt(self, task: Task) -> str:
+        """Build research prompt for frontend implementation"""
+        return f"""You are an expert Frontend Developer conducting research before implementing a webapp.
+
+**Implementation Task:** {task.description}
+
+**Research Goals:**
+1. **Framework & Technology Selection**
+   - Best framework for this webapp (Next.js, React, Vue, vanilla JS)
+   - Should we use TypeScript? (usually yes for production apps)
+   - State management needed? (useState, Context API, Redux, Zustand)
+   - Styling approach (Tailwind CSS recommended, CSS Modules, styled-components)
+   - Any third-party libraries needed? (date pickers, charts, animations)
+
+2. **Architecture & Patterns**
+   - Component architecture (atomic design, feature-based, etc.)
+   - State management strategy (local state vs global state)
+   - Data flow patterns
+   - Routing strategy (if multi-page)
+   - API integration patterns (if backend needed)
+
+3. **Dependencies & Package Analysis**
+   - Core dependencies needed (react, next, tailwind, etc.)
+   - Dev dependencies (typescript, eslint, prettier)
+   - Build tools and configuration
+   - Package versions to use (latest stable recommended)
+   - Potential dependency conflicts to avoid
+
+4. **Implementation Challenges**
+   - Complex features that need special attention
+   - Potential technical difficulties
+   - Performance considerations
+   - Browser compatibility requirements
+   - Mobile responsiveness challenges
+
+5. **Best Practices & Patterns**
+   - React hooks best practices for this type of app
+   - Component composition strategies
+   - Performance optimization opportunities
+   - Error handling patterns
+   - Accessibility implementation strategies
+
+6. **Project Structure**
+   - Recommended folder organization
+   - File naming conventions
+   - Component organization strategy
+   - Where to put hooks, utils, types
+
+**Output Format (JSON):**
+{{
+  "framework_recommendation": {{
+    "framework": "next.js|react|vue",
+    "reasoning": "Why this framework is best for this webapp",
+    "version": "Latest stable version",
+    "typescript": true|false,
+    "typescript_reasoning": "Why TypeScript should/shouldn't be used"
+  }},
+  "technology_stack": {{
+    "core_framework": "Next.js 14|React 18|Vue 3",
+    "styling": "Tailwind CSS|CSS Modules|styled-components",
+    "state_management": "useState + Context|Redux|Zustand|none",
+    "routing": "Next.js App Router|React Router|none",
+    "build_tool": "Next.js|Vite|Webpack"
+  }},
+  "dependencies": {{
+    "production": {{
+      "package-name": "version",
+      "react": "^18.2.0",
+      "next": "^14.0.0"
+    }},
+    "dev": {{
+      "typescript": "^5.0.0",
+      "@types/react": "^18.2.0"
+    }}
+  }},
+  "architecture": {{
+    "component_pattern": "Atomic Design|Feature-based|Page-based",
+    "state_strategy": "Description of state management approach",
+    "folder_structure": {{
+      "src/": ["components/", "hooks/", "utils/", "types/", "styles/"]
+    }}
+  }},
+  "implementation_challenges": [
+    {{"challenge": "...", "solution_approach": "...", "complexity": "low|medium|high"}}
+  ],
+  "best_practices": [
+    {{"practice": "...", "reasoning": "...", "priority": "critical|high|medium"}}
+  ],
+  "performance_considerations": [
+    "Lazy loading for routes",
+    "Image optimization with Next.js Image",
+    "Code splitting strategies"
+  ],
+  "estimated_complexity": "simple|moderate|complex|very complex",
+  "research_summary": "Brief summary of research findings"
+}}
+
+Be thorough. Research prevents implementation issues."""
+
+    def _build_planning_prompt(self, task: Task, research: Dict) -> str:
+        """Build planning prompt for frontend implementation"""
+        return f"""You are an expert Frontend Developer creating a detailed implementation plan.
+
+**Implementation Task:** {task.description}
+
+**Research Findings:**
+{research}
+
+**Planning Goals:**
+1. **Component Breakdown**
+   - List ALL components needed (from largest container to smallest atom)
+   - Define component hierarchy and relationships
+   - Specify props for each component
+   - Identify reusable components
+
+2. **State Management Plan**
+   - What state is needed (local vs global)
+   - Where state should live (which components)
+   - How state flows through the app
+   - When to use Context API vs props
+
+3. **File Structure & Organization**
+   - Exact file and folder structure
+   - Where each component goes
+   - How files are named
+   - How imports are organized
+
+4. **Implementation Steps**
+   - Ordered steps to build the webapp
+   - Dependencies between steps
+   - What to build first, second, third
+   - Integration points
+
+5. **Data Flow & Logic**
+   - How data flows through components
+   - Event handling strategy
+   - Form validation approach
+   - Error handling strategy
+
+6. **Styling Strategy**
+   - How to apply design system
+   - Tailwind classes vs custom CSS
+   - Responsive breakpoints implementation
+   - Component-specific styling notes
+
+7. **Quality Checkpoints**
+   - What to verify at each step
+   - Testing checkpoints
+   - Accessibility checks
+   - Performance validations
+
+**Output Format (JSON):**
+{{
+  "component_hierarchy": [
+    {{
+      "name": "App",
+      "type": "container",
+      "children": ["Header", "MainContent", "Footer"],
+      "state": ["currentTab", "isLoading"],
+      "props": [],
+      "file_path": "src/components/App.tsx"
+    }},
+    {{
+      "name": "Header",
+      "type": "presentational",
+      "children": ["Logo", "Navigation"],
+      "state": [],
+      "props": ["onNavigate"],
+      "file_path": "src/components/Header.tsx"
+    }}
+  ],
+  "state_management_plan": {{
+    "global_state": [
+      {{"name": "user", "type": "User | null", "managed_by": "UserContext"}}
+    ],
+    "local_state": [
+      {{"component": "TodoList", "state": ["todos", "filter"], "type": "array, string"}}
+    ],
+    "context_providers": ["UserContext", "ThemeContext"]
+  }},
+  "file_structure": {{
+    "src/": {{
+      "components/": ["App.tsx", "Header.tsx", "TodoList.tsx"],
+      "hooks/": ["useTodos.ts", "useAuth.ts"],
+      "utils/": ["helpers.ts", "validation.ts"],
+      "types/": ["index.ts"],
+      "styles/": ["globals.css"]
+    }},
+    "public/": ["favicon.ico", "images/"],
+    "root": [".gitignore", "README.md", "package.json", "tsconfig.json", "tailwind.config.js", "next.config.js"]
+  }},
+  "implementation_steps": [
+    {{
+      "step": 1,
+      "action": "Set up Next.js project with TypeScript and Tailwind",
+      "commands": ["npx create-next-app@latest --typescript --tailwind"],
+      "expected_output": "Clean Next.js project structure",
+      "validation": "npm run dev works"
+    }},
+    {{
+      "step": 2,
+      "action": "Create base layout and navigation",
+      "files_to_create": ["src/components/Header.tsx", "src/components/Footer.tsx"],
+      "expected_output": "App shell with navigation",
+      "validation": "Layout renders correctly"
+    }}
+  ],
+  "styling_strategy": {{
+    "approach": "Tailwind CSS with custom design tokens",
+    "design_tokens": {{
+      "colors": "Define in tailwind.config.js",
+      "fonts": "Import from Google Fonts",
+      "spacing": "Use Tailwind's default scale"
+    }},
+    "responsive_breakpoints": {{
+      "mobile": "default (< 768px)",
+      "tablet": "md: (768px - 1024px)",
+      "desktop": "lg: (1024px+)"
+    }}
+  }},
+  "error_handling_strategy": {{
+    "approach": "Error boundaries + try-catch + user-friendly messages",
+    "error_boundary": "Wrap app in ErrorBoundary component",
+    "api_errors": "Try-catch with user feedback",
+    "validation_errors": "Inline form validation messages"
+  }},
+  "accessibility_plan": {{
+    "semantic_html": "Use proper HTML5 elements",
+    "aria_labels": "Add to interactive elements without text",
+    "keyboard_nav": "Ensure tab order is logical",
+    "focus_indicators": "Visible focus states on all interactive elements"
+  }},
+  "performance_optimizations": [
+    "Use React.memo() for TodoItem component",
+    "Lazy load heavy components",
+    "Optimize images with Next.js Image component"
+  ],
+  "quality_checkpoints": [
+    {{"phase": "Setup", "check": "TypeScript compiles without errors"}},
+    {{"phase": "Implementation", "check": "All components render correctly"}},
+    {{"phase": "Integration", "check": "State flows correctly between components"}},
+    {{"phase": "Final", "check": "Accessibility audit passes, responsive on all devices"}}
+  ],
+  "plan_summary": "Brief overview of the implementation plan"
+}}
+
+Create a clear, step-by-step implementation plan."""
+
+    async def execute_task_with_plan(
+        self,
+        task: Task,
+        research: Dict,
+        plan: Dict
+    ) -> Dict[str, Any]:
+        """
+        Execute frontend implementation with research-backed plan
+
+        Uses research findings and execution plan to create
+        production-ready code following best practices.
+        """
+        print(f"💻 [FRONTEND] Implementing with research & plan")
+
+        # Extract design spec from task metadata
+        design_spec = {}
+        if task.metadata and isinstance(task.metadata, dict):
+            design_spec = task.metadata.get('design_spec', {})
+
+        # Get framework and tech stack from research
+        framework = research.get('framework_recommendation', {}).get('framework', 'react')
+        tech_stack = research.get('technology_stack', {})
+
+        # Create enhanced implementation prompt informed by research and plan
+        implementation_prompt = f"""You are an expert Frontend Developer implementing a production-ready webapp.
+
+**IMPORTANT:** You have completed thorough research and planning. Use these findings to guide your implementation.
+
+**Original Task:** {task.description}
+
+**Design Specification:**
+{design_spec}
+
+**Research Findings:**
+{research}
+
+**Implementation Plan:**
+{plan}
+
+**Your Task:**
+Implement the complete, production-ready webapp following the research and plan.
+
+**CRITICAL IMPLEMENTATION GUIDELINES:**
+
+1. **Follow the Plan Precisely:**
+   - Use the recommended framework: {framework}
+   - Use the technology stack: {tech_stack}
+   - Follow the component hierarchy from the plan
+   - Implement the state management strategy from the plan
+   - Use the file structure from the plan
+
+2. **Code Quality (Based on Research Best Practices):**
+   - Write COMPLETE, WORKING code (NO placeholders, NO TODOs)
+   - Follow the best practices identified in research
+   - Address the implementation challenges identified
+   - Apply performance optimizations from the plan
+
+3. **File Structure:**
+   Create ALL files according to the plan's file structure:
+   {plan.get('file_structure', {})}
+
+4. **Dependencies:**
+   Use the dependencies identified in research:
+   - Production: {research.get('dependencies', {}).get('production', {})}
+   - Dev: {research.get('dependencies', {}).get('dev', {})}
+
+5. **Output Format:**
+   Return a comprehensive JSON with ALL files needed:
+
+{{
+  "framework": "{framework}",
+  "dependencies": {{
+    "production": {research.get('dependencies', {}).get('production', {})},
+    "dev": {research.get('dependencies', {}).get('dev', {})}
+  }},
+  "files": [
+    {{
+      "path": "package.json",
+      "content": "Full package.json content with all dependencies"
+    }},
+    {{
+      "path": "src/components/App.tsx",
+      "content": "Complete component code"
+    }},
+    {{
+      "path": "src/components/[ComponentName].tsx",
+      "content": "Complete component code for each component"
+    }},
+    {{
+      "path": "tailwind.config.js",
+      "content": "Tailwind configuration with design tokens"
+    }},
+    {{
+      "path": ".gitignore",
+      "content": "Comprehensive .gitignore file"
+    }},
+    {{
+      "path": "README.md",
+      "content": "Comprehensive README with setup instructions"
+    }},
+    {{
+      "path": ".env.example",
+      "content": "Environment variables template if needed"
+    }}
+  ],
+  "setup_instructions": [
+    "npm install",
+    "npm run dev"
+  ],
+  "deployment_notes": "Notes for deployment",
+  "implementation_summary": "What was implemented and how it follows the plan"
+}}
+
+**REMEMBER:**
+- Follow the implementation plan step-by-step
+- Use research findings to inform decisions
+- Create production-ready, deployable code
+- Include ALL necessary files
+- Follow best practices identified in research
+- Address challenges identified in research planning
+
+Implement now, following the plan precisely."""
+
+        try:
+            # Get implementation from Claude with research & plan context
+            response = await self.claude_sdk.send_message(implementation_prompt)
+
+            # Parse implementation
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                implementation = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                implementation = json.loads(response)
+            else:
+                implementation = {
+                    "implementation_description": response,
+                    "note": "Implementation created with research & planning"
+                }
+
+            files_count = len(implementation.get('files', []))
+            print(f"✅ [FRONTEND] Research-backed implementation completed ({files_count} files)")
+
+            return {
+                "status": "completed",
+                "implementation": implementation,
+                "raw_response": response,
+                "research_used": True,
+                "research_summary": research.get('research_summary', 'Research completed'),
+                "plan_summary": plan.get('plan_summary', 'Plan created')
+            }
+
+        except Exception as e:
+            print(f"❌ [FRONTEND] Error during implementation: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Fallback
+            return {
+                "status": "completed_with_fallback",
+                "implementation": {
+                    "error": str(e),
+                    "note": "Fallback implementation"
+                }
+            }
+
     async def execute_task(self, task: Task) -> Dict[str, Any]:
         """
-        Execute implementation task using Claude AI
+        Execute implementation task using Claude AI (backward compatibility)
 
-        Phase 3: Real code generation with Claude
+        This is the original implementation without research & planning.
+        Used when enable_research_planning=False
         """
-        print(f"💻 [FRONTEND] Implementing: {task.description}")
+        print(f"💻 [FRONTEND] Implementing: {task.description} (direct execution)")
 
         # Extract design spec from task metadata
         design_spec = {}
@@ -151,9 +568,9 @@ Always implement designs with pixel-perfect accuracy while maintaining code qual
 Create a complete, production-ready React webapp implementation that includes:
 
 1. **Project Structure & Files**
-   - All necessary files: src/App.jsx, src/main.jsx, components/, hooks/, utils/
+   - All necessary files: pages/, components/, hooks/, utils/, public/
    - package.json with all dependencies and scripts
-   - vite.config.js for build configuration
+   - next.config.js for build configuration
    - .gitignore for version control
    - README.md with comprehensive documentation
    - .env.example template for environment variables
@@ -213,9 +630,9 @@ Create a complete, production-ready React webapp implementation that includes:
    - SEO meta tags (title, description)
 
 9. **package.json**
-   - All required dependencies (react, react-dom, etc.)
-   - Dev dependencies (vite, eslint, etc.)
-   - Scripts: dev, build, preview, lint
+   - All required dependencies (react, react-dom, next, etc.)
+   - Dev dependencies (eslint, etc.)
+   - Scripts: dev, build, start, lint
    - Proper project metadata
 
 10. **Documentation Files**
@@ -243,21 +660,21 @@ Create a complete, production-ready React webapp implementation that includes:
 **Output Format (JSON):**
 {{
   "framework": "react",
-  "build_tool": "vite",
+  "build_tool": "nextjs",
   "files": [
-    {{"path": "index.html", "content": "...COMPLETE HTML content..."}},
-    {{"path": "src/App.jsx", "content": "...COMPLETE React component with all logic..."}},
-    {{"path": "src/main.jsx", "content": "...React entry point..."}},
+    {{"path": "pages/_app.js", "content": "...COMPLETE Next.js App component..."}},
+    {{"path": "pages/index.js", "content": "...COMPLETE React component with all logic..."}},
+    {{"path": "components/...", "content": "...Component files..."}},
     {{"path": "package.json", "content": "...COMPLETE package.json..."}},
-    {{"path": "vite.config.js", "content": "...Vite configuration..."}},
+    {{"path": "next.config.js", "content": "...Next.js configuration..."}},
     {{"path": ".gitignore", "content": "...Complete .gitignore..."}},
     {{"path": "README.md", "content": "...Comprehensive README..."}},
     {{"path": ".env.example", "content": "...Environment variable template..."}},
     {{"path": "tailwind.config.js", "content": "...if using Tailwind build setup..."}},
-    // Additional component files (src/components/*, src/hooks/*, etc.)
+    // Additional component files (components/*, hooks/*, etc.)
   ],
-  "dependencies": ["react", "react-dom", "@vitejs/plugin-react"],
-  "dev_dependencies": ["vite", "eslint", "eslint-plugin-react"],
+  "dependencies": ["react", "react-dom", "next"],
+  "dev_dependencies": ["eslint", "eslint-plugin-react"],
   "deployment_notes": "Complete instructions for local development and deployment",
   "github_ready": true,
   "environment_variables": ["API_KEY (optional)", "API_URL (optional)"]
@@ -283,12 +700,12 @@ Generate complete, production-ready, functional code that implements the design 
                 # Claude returned code directly, structure it
                 implementation = {
                     "framework": "react",
-                    "build_tool": "vite",
+                    "build_tool": "nextjs",
                     "files": [{
-                        "path": "src/App.jsx",
+                        "path": "pages/index.js",
                         "content": response
                     }],
-                    "dependencies": ["react", "react-dom"],
+                    "dependencies": ["react", "react-dom", "next"],
                     "note": "Code generated by Claude AI - see content for implementation"
                 }
 
@@ -310,9 +727,9 @@ Generate complete, production-ready, functional code that implements the design 
                 "status": "completed_with_fallback",
                 "implementation": {
                     "framework": "react",
-                    "build_tool": "vite",
+                    "build_tool": "nextjs",
                     "files": [{
-                        "path": "src/App.jsx",
+                        "path": "pages/index.js",
                         "content": "// Error during generation - see logs"
                     }],
                     "error": str(e),

@@ -32,7 +32,7 @@ class DevOpsEngineerAgent(BaseAgent):
             ],
             skills={
                 "platforms": ["Netlify", "Vercel", "AWS", "Docker"],
-                "tools": ["Git", "npm", "Vite", "Webpack", "netlify.toml"],
+                "tools": ["Git", "npm", "Next.js", "Webpack", "netlify.toml"],
                 "specialties": ["Build error detection & fixing", "Build optimization", "Deployment automation", "Performance tuning"],
                 "monitoring": ["Build logs analysis", "Lighthouse", "Web Vitals", "Error tracking"],
                 "expertise": ["devDependencies configuration", "Netlify build troubleshooting"]
@@ -45,7 +45,7 @@ You are an expert DevOps Engineer with 10+ years of experience specializing in m
 Your expertise includes:
 - Git/GitHub workflows and best practices
 - Deployment platforms (Netlify, Vercel, AWS, Render)
-- Build tool optimization (Vite, Webpack, Rollup)
+- Build tool optimization (Next.js, Webpack, Rollup)
 - CI/CD pipeline setup and automation
 - Environment configuration and secrets management
 - Performance optimization (bundle size, caching, CDN)
@@ -97,7 +97,7 @@ Before ANY deployment, you MUST ensure code is properly version controlled on Gi
 
 2. **Netlify Build Configuration**
    - Build command: `npm run build` (or appropriate command)
-   - Publish directory: `dist` (for Vite) or `build` (for CRA)
+   - Publish directory: `.next` or `out` (for Next.js static export) or `build` (for CRA)
    - Node version: 18 or 20 (specify in netlify.toml or environment)
    - Environment variables: Set securely in Netlify dashboard (never in code)
 
@@ -164,28 +164,12 @@ Before ANY deployment, you MUST ensure code is properly version controlled on Gi
 6. **Netlify Configuration (CRITICAL - MOST IMPORTANT)**
    - ALWAYS check if netlify.toml file exists and is properly configured
    - **ABSOLUTELY MANDATORY**: Every netlify.toml MUST have `NPM_FLAGS = "--include=dev"`
-   - This is NOT optional - TypeScript, Vite, Next.js compiler are in devDependencies!
+   - This is NOT optional - TypeScript, Next.js compiler are in devDependencies!
    - Without NPM_FLAGS, builds WILL fail with "Cannot find module" errors
 
    **Framework-Specific netlify.toml:**
 
-   **For React + Vite:**
-   ```toml
-   [build]
-     command = "npm run build"
-     publish = "dist"
-
-   [build.environment]
-     NODE_VERSION = "18"
-     NPM_FLAGS = "--include=dev"  # ABSOLUTELY REQUIRED!
-
-   [[redirects]]
-     from = "/*"
-     to = "/index.html"
-     status = 200
-   ```
-
-   **For Next.js:**
+   **For Next.js (PREFERRED):**
    ```toml
    [build]
      command = "npm run build"
@@ -205,10 +189,26 @@ Before ANY deployment, you MUST ensure code is properly version controlled on Gi
    # NO /* redirects - Next.js plugin handles routing!
    ```
 
+   **For React (if not using Next.js):**
+   ```toml
+   [build]
+     command = "npm run build"
+     publish = "build"
+
+   [build.environment]
+     NODE_VERSION = "18"
+     NPM_FLAGS = "--include=dev"  # ABSOLUTELY REQUIRED!
+
+   [[redirects]]
+     from = "/*"
+     to = "/index.html"
+     status = 200
+   ```
+
    **CRITICAL RULES:**
    - Every netlify.toml MUST include NPM_FLAGS = "--include=dev"
    - For Next.js: publish = ".next", add @netlify/plugin-nextjs, NO redirects
-   - For Vite: publish = "dist", add /* redirect
+   - For React: publish = "build", add /* redirect
    - If netlify.toml is missing or incomplete, generate a complete one
    - Double-check NPM_FLAGS is present EVERY TIME
 
@@ -234,7 +234,7 @@ Before ANY deployment, you MUST ensure code is properly version controlled on Gi
 
    **Missing Module Errors:**
    ```
-   Error: "Cannot find module '@vitejs/plugin-react'"
+   Error: "Cannot find module 'next'"
 
    YOU MUST:
    1. Check if NPM_FLAGS = "--include=dev" in netlify.toml
@@ -299,13 +299,424 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
             mcp_servers=mcp_servers
         )
 
+    def _build_research_prompt(self, task: Task) -> str:
+        """Build research prompt for DevOps deployment"""
+        return f"""You are an expert DevOps Engineer conducting research before deploying a webapp.
+
+**Deployment Task:** {task.description}
+
+**Research Goals:**
+1. **Deployment Platform Analysis**
+   - Best platform for this webapp (Netlify, Vercel, AWS, Render)
+   - Platform-specific requirements and limitations
+   - Pricing considerations
+   - Feature requirements (SSR, static, serverless functions)
+
+2. **Build Configuration Research**
+   - Framework-specific build requirements (Next.js vs React vs Vue)
+   - Build commands and output directories
+   - Environment variables needed
+   - devDependencies vs dependencies requirements
+   - Critical: NPM_FLAGS for devDependencies inclusion
+
+3. **Security Best Practices**
+   - Security headers needed (CSP, X-Frame-Options, etc.)
+   - HTTPS/SSL configuration
+   - Environment variable management
+   - Secrets handling
+   - API key protection strategies
+
+4. **GitHub Repository Strategy**
+   - Repository naming conventions
+   - .gitignore best practices
+   - Branch strategy (main vs master)
+   - Commit message guidelines
+   - README requirements
+
+5. **netlify.toml Configuration**
+   - Framework-specific netlify.toml requirements
+   - Build settings (command, publish directory)
+   - Plugin requirements (@netlify/plugin-nextjs for Next.js)
+   - Redirect rules (when needed, when not)
+   - Critical: NPM_FLAGS = "--include=dev" requirement
+
+6. **Common Deployment Issues**
+   - TypeScript build errors
+   - Missing module errors (devDependencies not installed)
+   - Import path errors
+   - Build configuration errors
+   - How to prevent and fix each
+
+**Output Format (JSON):**
+{{
+  "platform_recommendation": {{
+    "platform": "netlify|vercel|aws",
+    "reasoning": "Why this platform is best",
+    "requirements": ["requirement 1", "requirement 2"]
+  }},
+  "build_configuration": {{
+    "framework": "next.js|react|vue",
+    "build_command": "npm run build",
+    "publish_directory": ".next|build|dist",
+    "node_version": "18|20",
+    "npm_flags_required": true,
+    "npm_flags_value": "--include=dev",
+    "reasoning": "Why NPM_FLAGS is critical for this framework"
+  }},
+  "netlify_toml_requirements": {{
+    "framework": "next.js|react|vue",
+    "needs_plugin": true|false,
+    "plugin_name": "@netlify/plugin-nextjs|none",
+    "needs_redirects": true|false,
+    "redirect_rule": "/* to /index.html or none",
+    "critical_settings": [
+      "NPM_FLAGS = '--include=dev' (MANDATORY)",
+      "NODE_VERSION = '18'",
+      "Other critical settings"
+    ]
+  }},
+  "github_strategy": {{
+    "repository_name": "suggested-repo-name",
+    "owner": "billsusanto",
+    "gitignore_items": ["node_modules", ".env", "dist", "build"],
+    "branch": "main|master",
+    "commit_message_format": "convention"
+  }},
+  "security_configuration": {{
+    "security_headers": {{
+      "X-Frame-Options": "DENY",
+      "Content-Security-Policy": "default-src 'self'",
+      "X-Content-Type-Options": "nosniff"
+    }},
+    "environment_variables": ["VAR_NAME: purpose"],
+    "secrets_checklist": ["Check for API keys", "Check for tokens"]
+  }},
+  "common_issues_prevention": [
+    {{
+      "issue": "TypeScript errors during build",
+      "prevention": "Ensure NPM_FLAGS includes devDependencies",
+      "fix_if_occurs": "Check netlify.toml has NPM_FLAGS"
+    }},
+    {{
+      "issue": "Cannot find module 'next'",
+      "prevention": "Add NPM_FLAGS = '--include=dev' to netlify.toml",
+      "fix_if_occurs": "Verify devDependencies are installed"
+    }}
+  ],
+  "research_summary": "Brief summary of deployment research"
+}}
+
+Be thorough. Research prevents deployment failures."""
+
+    def _build_planning_prompt(self, task: Task, research: Dict) -> str:
+        """Build planning prompt for DevOps deployment"""
+        return f"""You are an expert DevOps Engineer creating a detailed deployment plan.
+
+**Deployment Task:** {task.description}
+
+**Research Findings:**
+{research}
+
+**Planning Goals:**
+1. **GitHub Repository Setup Plan**
+   - Repository creation steps
+   - .gitignore file content
+   - README.md structure
+   - Initial commit strategy
+   - Push to remote steps
+
+2. **netlify.toml Generation Plan**
+   - Complete netlify.toml file content
+   - Framework-specific configuration
+   - CRITICAL: NPM_FLAGS inclusion
+   - Plugin configuration (if needed)
+   - Redirect rules (if needed)
+
+3. **Build Configuration Plan**
+   - package.json verification
+   - Build command validation
+   - Publish directory confirmation
+   - Environment variables setup
+
+4. **Deployment Execution Plan**
+   - Step-by-step deployment process
+   - Netlify site naming convention
+   - Build settings configuration
+   - Deployment trigger
+
+5. **Post-Deployment Verification Plan**
+   - Build log analysis steps
+   - Error detection checklist
+   - Live site verification
+   - Performance check
+   - Security verification
+
+6. **Error Recovery Plan**
+   - Common errors and fixes
+   - Rollback strategy
+   - Re-deployment process
+
+**Output Format (JSON):**
+{{
+  "github_setup_plan": {{
+    "repository_name": "{research.get('github_strategy', {}).get('repository_name', 'webapp')}",
+    "repository_url": "https://github.com/billsusanto/[repo-name]",
+    "gitignore_content": "Complete .gitignore file content",
+    "readme_content": "Complete README.md content",
+    "git_commands": [
+      "git init",
+      "git add .",
+      "git commit -m 'Initial commit: webapp'",
+      "git remote add origin https://github.com/billsusanto/[repo-name].git",
+      "git push -u origin main"
+    ]
+  }},
+  "netlify_toml_plan": {{
+    "framework": "{research.get('build_configuration', {}).get('framework', 'react')}",
+    "complete_content": "Full netlify.toml file content with ALL required settings",
+    "critical_checks": [
+      "✅ NPM_FLAGS = '--include=dev' is present",
+      "✅ Build command is correct",
+      "✅ Publish directory matches framework",
+      "✅ Plugin added (if Next.js)",
+      "✅ Redirects handled correctly"
+    ]
+  }},
+  "build_verification_plan": {{
+    "steps": [
+      "Verify package.json has correct build script",
+      "Check dependencies vs devDependencies",
+      "Validate build command locally",
+      "Confirm publish directory exists after build"
+    ]
+  }},
+  "deployment_steps": [
+    {{
+      "step": 1,
+      "action": "Create GitHub repository",
+      "validation": "Repository exists and is accessible"
+    }},
+    {{
+      "step": 2,
+      "action": "Generate netlify.toml with NPM_FLAGS",
+      "validation": "netlify.toml file created and valid"
+    }},
+    {{
+      "step": 3,
+      "action": "Push code to GitHub",
+      "validation": "Code visible on GitHub"
+    }},
+    {{
+      "step": 4,
+      "action": "Deploy to Netlify",
+      "validation": "Build starts successfully"
+    }},
+    {{
+      "step": 5,
+      "action": "Monitor build logs",
+      "validation": "Build completes without errors"
+    }},
+    {{
+      "step": 6,
+      "action": "Verify live site",
+      "validation": "Site loads correctly"
+    }}
+  ],
+  "post_deployment_checks": [
+    "Check build logs for errors",
+    "Verify site loads (not blank page)",
+    "Test main functionality works",
+    "Check browser console for errors",
+    "Verify responsive design",
+    "Check security headers"
+  ],
+  "error_recovery_strategies": [
+    {{
+      "error_type": "TypeScript errors",
+      "detection": "Build log shows type errors",
+      "fix": "Add missing NPM_FLAGS or fix type issues",
+      "redeployment": "Push fix and redeploy"
+    }},
+    {{
+      "error_type": "Missing modules",
+      "detection": "Cannot find module errors",
+      "fix": "Verify NPM_FLAGS = '--include=dev' in netlify.toml",
+      "redeployment": "Update netlify.toml and redeploy"
+    }}
+  ],
+  "plan_summary": "Brief overview of deployment plan"
+}}
+
+Create a comprehensive, foolproof deployment plan."""
+
+    async def execute_task_with_plan(
+        self,
+        task: Task,
+        research: Dict,
+        plan: Dict
+    ) -> Dict[str, Any]:
+        """
+        Execute DevOps deployment with research-backed plan
+
+        Uses research findings to configure deployment optimally
+        and follows detailed deployment plan.
+        """
+        print(f"🚀 [DEVOPS] Deploying with research & plan")
+
+        # Extract implementation from task metadata
+        implementation = {}
+        if task.metadata and isinstance(task.metadata, dict):
+            implementation = task.metadata.get('implementation', {})
+
+        # Get platform and configuration from research
+        platform = research.get('platform_recommendation', {}).get('platform', 'netlify')
+        build_config = research.get('build_configuration', {})
+
+        # Create deployment prompt informed by research and plan
+        deployment_prompt = f"""You are an expert DevOps Engineer executing a deployment.
+
+**IMPORTANT:** You have completed thorough research and planning. Follow the plan precisely.
+
+**Deployment Task:** {task.description}
+
+**Implementation to Deploy:**
+{implementation}
+
+**Research Findings:**
+{research}
+
+**Deployment Plan:**
+{plan}
+
+**Your Task:**
+Execute the deployment following the plan step-by-step.
+
+**CRITICAL DEPLOYMENT CHECKLIST:**
+
+1. **GitHub Repository Setup (from plan):**
+   - Repository name: {plan.get('github_setup_plan', {}).get('repository_name', 'webapp')}
+   - Use .gitignore from plan
+   - Use README from plan
+   - Follow git commands from plan
+
+2. **netlify.toml Generation (MOST CRITICAL):**
+   Use the COMPLETE netlify.toml from the plan:
+   {plan.get('netlify_toml_plan', {}).get('complete_content', 'Generate based on framework')}
+
+   VERIFY these critical items:
+   {plan.get('netlify_toml_plan', {}).get('critical_checks', [])}
+
+3. **Build Configuration:**
+   - Build command: {build_config.get('build_command', 'npm run build')}
+   - Publish directory: {build_config.get('publish_directory', 'dist')}
+   - Node version: {build_config.get('node_version', '18')}
+   - NPM_FLAGS: {build_config.get('npm_flags_value', '--include=dev')} (MANDATORY!)
+
+4. **Deployment Execution:**
+   Follow steps from plan:
+   {plan.get('deployment_steps', [])}
+
+5. **Post-Deployment Verification:**
+   Check all items from plan:
+   {plan.get('post_deployment_checks', [])}
+
+**Output Format (JSON):**
+{{
+  "github_workflow": {{
+    "repository_name": "actual-repo-name",
+    "repository_url": "https://github.com/billsusanto/...",
+    "repository_exists": false,
+    "git_commands": ["git init", "git add .", "..."],
+    "gitignore_content": "Complete .gitignore",
+    "readme_content": "Complete README.md"
+  }},
+  "netlify_toml_config": {{
+    "content": "COMPLETE netlify.toml file content from plan",
+    "includes_npm_flags": true,
+    "npm_flags_value": "--include=dev",
+    "framework": "next.js|react|vue",
+    "validation": "All critical checks passed"
+  }},
+  "build_config": {{
+    "build_command": "npm run build",
+    "publish_directory": ".next|build|dist",
+    "node_version": "18",
+    "environment_variables": []
+  }},
+  "netlify_deployment": {{
+    "site_name": "repo-name",
+    "deployment_url": "https://...",
+    "build_status": "success|pending|failed",
+    "deployment_ready": true
+  }},
+  "security_analysis": {{
+    "security_headers": {research.get('security_configuration', {}).get('security_headers', {})},
+    "secrets_check": "No secrets found in code",
+    "https_enabled": true
+  }},
+  "deployment_steps": ["Step 1: ...", "Step 2: ...", "..."],
+  "post_deployment_verification": {{
+    "build_logs_checked": true,
+    "site_accessible": true,
+    "build_errors": [],
+    "recommendations": []
+  }},
+  "deployment_summary": "Deployment executed following research-backed plan"
+}}
+
+Execute the deployment precisely as planned."""
+
+        try:
+            # Get deployment result from Claude
+            response = await self.claude_sdk.send_message(deployment_prompt)
+
+            # Parse deployment report
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                devops_report = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                devops_report = json.loads(response)
+            else:
+                devops_report = {
+                    "deployment_summary": response,
+                    "note": "Deployment with research & planning"
+                }
+
+            print(f"✅ [DEVOPS] Research-backed deployment plan created")
+
+            return {
+                "status": "completed",
+                "devops_report": devops_report,
+                "raw_response": response,
+                "research_used": True,
+                "research_summary": research.get('research_summary', 'Research completed'),
+                "plan_summary": plan.get('plan_summary', 'Plan created')
+            }
+
+        except Exception as e:
+            print(f"❌ [DEVOPS] Error during deployment planning: {e}")
+            import traceback
+            traceback.print_exc()
+
+            return {
+                "status": "completed_with_fallback",
+                "devops_report": {
+                    "error": str(e),
+                    "note": "Fallback deployment config"
+                }
+            }
+
     async def execute_task(self, task: Task) -> Dict[str, Any]:
         """
-        Execute DevOps task using Claude AI with Netlify MCP
+        Execute DevOps task using Claude AI (backward compatibility)
 
-        Handles deployment, optimization, and infrastructure setup
+        This is the original implementation without research & planning.
+        Used when enable_research_planning=False
         """
-        print(f"🚀 [DEVOPS] Processing deployment: {task.description}")
+        print(f"🚀 [DEVOPS] Processing deployment: {task.description} (direct execution)")
 
         # Extract implementation from task metadata
         implementation = {}
@@ -354,23 +765,7 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
 
    **Framework-Specific netlify.toml Templates:**
 
-   **For React + Vite:**
-   ```toml
-   [build]
-     command = "npm run build"
-     publish = "dist"
-
-   [build.environment]
-     NODE_VERSION = "18"
-     NPM_FLAGS = "--include=dev"  # MANDATORY!
-
-   [[redirects]]
-     from = "/*"
-     to = "/index.html"
-     status = 200
-   ```
-
-   **For Next.js:**
+   **For Next.js (PREFERRED):**
    ```toml
    [build]
      command = "npm run build"
@@ -390,26 +785,42 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
    # NO redirects needed - Next.js plugin handles routing!
    ```
 
+   **For React (if not using Next.js):**
+   ```toml
+   [build]
+     command = "npm run build"
+     publish = "build"
+
+   [build.environment]
+     NODE_VERSION = "18"
+     NPM_FLAGS = "--include=dev"  # MANDATORY!
+
+   [[redirects]]
+     from = "/*"
+     to = "/index.html"
+     status = 200
+   ```
+
    **CRITICAL RULES:**
    - ✅ ALWAYS include `NPM_FLAGS = "--include=dev"` - NO EXCEPTIONS!
    - ✅ For Next.js: Use .next as publish directory, add @netlify/plugin-nextjs
    - ✅ For Next.js: DO NOT add /* redirects (plugin handles it)
-   - ✅ For Vite/React: Use dist as publish directory, add /* redirect
-   - ✅ This is CRITICAL because TypeScript, Vite, Next.js are in devDependencies!
+   - ✅ For React: Use build as publish directory, add /* redirect
+   - ✅ This is CRITICAL because TypeScript and Next.js are in devDependencies!
 
 2. **Dependency Analysis**
    - Review package.json dependencies AND devDependencies
-   - Ensure build tools (vite, @vitejs/plugin-react, etc.) are in devDependencies
+   - Ensure build tools (next, etc.) are in devDependencies or dependencies
    - Check for security vulnerabilities in packages
    - Verify version compatibility
    - Ensure all packages needed for build are present
 
 3. **Build Configuration**
    - Verify build command: `npm run build`
-   - Verify build output directory: `dist` (Vite) or `build` (CRA)
+   - Verify build output directory: `.next` (Next.js) or `build` (CRA)
    - Check build scripts in package.json
    - Validate all imports and file paths
-   - Ensure vite.config.js or similar build config exists
+   - Ensure next.config.js or similar build config exists
 
 4. **Pre-Deployment Build Test**
    - Recommend testing: `npm install && npm run build`
@@ -488,11 +899,11 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
 
    **B. Missing Module Errors**
    ```
-   Error: "Cannot find module '@vitejs/plugin-react'"
+   Error: "Cannot find module 'next'"
 
    FIX: Check if NPM_FLAGS = "--include=dev" is in netlify.toml
         If missing, add it and redeploy
-        If present, add the package to package.json devDependencies
+        If present, add the package to package.json dependencies
    ```
 
    **C. Import Path Errors**
@@ -510,7 +921,7 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
 
    FIX: Check package.json has correct build script
         For Next.js: "build": "next build"
-        For Vite: "build": "vite build"
+        For React: "build": "react-scripts build"
    ```
 
    **YOUR MANDATORY ACTIONS:**
@@ -581,7 +992,7 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
     "exists": true | false,
     "is_complete": true | false,
     "needs_generation": true | false,
-    "framework_detected": "nextjs" | "vite" | "react" | "unknown",
+    "framework_detected": "nextjs" | "react" | "unknown",
     "content": "...complete netlify.toml file content...",
     "includes_npm_flags": true | false,  // CRITICAL - MUST BE TRUE!
     "npm_flags_value": "--include=dev",  // MUST BE THIS EXACT VALUE
@@ -596,7 +1007,7 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
     "is_new_site": true | false,
     "existing_site_id": "site_id or null",
     "build_command": "npm run build",
-    "publish_directory": "dist",
+    "publish_directory": ".next",  // or "out" for Next.js static export
     "node_version": "18",
     "environment_variables_needed": ["VAR_NAME: description"]
   }},
@@ -642,7 +1053,7 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
   }},
   "build_config": {{
     "build_command": "npm run build",
-    "publish_directory": "dist",
+    "publish_directory": ".next",  // or "out" for Next.js static export
     "node_version": "18",
     "build_verified": true | false,
     "dev_dependencies_included": true | false  // CRITICAL
@@ -688,13 +1099,13 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
 
 1. **NPM_FLAGS is ABSOLUTELY MANDATORY**
    - ✅ EVERY netlify.toml MUST have: `NPM_FLAGS = "--include=dev"`
-   - ✅ This is NOT optional - TypeScript, Vite, Next.js are in devDependencies!
+   - ✅ This is NOT optional - TypeScript and Next.js are in devDependencies!
    - ✅ Without this, build WILL fail with "Cannot find module" errors
    - ✅ Check EVERY netlify.toml you generate has this line!
 
 2. **Framework-Specific Configuration**
    - ✅ Next.js: publish = ".next", use @netlify/plugin-nextjs, NO /* redirects
-   - ✅ Vite/React: publish = "dist", add /* redirect to /index.html
+   - ✅ React (if not using Next.js): publish = "build", add /* redirect to /index.html
    - ✅ Detect framework from package.json dependencies
 
 3. **Build Error Analysis (MANDATORY)**

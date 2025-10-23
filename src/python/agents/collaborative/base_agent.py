@@ -12,9 +12,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from sdk.claude_sdk import ClaudeSDK
 from .models import AgentCard, A2AMessage, MessageType, Task, TaskResponse
 from .a2a_protocol import a2a_protocol
+from .research_mixin import ResearchPlanningMixin
 
 
-class BaseAgent(ABC):
+class BaseAgent(ABC, ResearchPlanningMixin):
     """
     Base class for all collaborative agents
 
@@ -28,7 +29,8 @@ class BaseAgent(ABC):
         self,
         agent_card: AgentCard,
         system_prompt: str,
-        mcp_servers: Optional[Dict] = None
+        mcp_servers: Optional[Dict] = None,
+        enable_research_planning: bool = True
     ):
         """
         Initialize base agent
@@ -37,10 +39,14 @@ class BaseAgent(ABC):
             agent_card: Agent's capabilities and metadata
             system_prompt: Claude system prompt for this agent
             mcp_servers: Available MCP servers
+            enable_research_planning: Enable research & planning phase (default: True)
         """
         self.agent_card = agent_card
         self.system_prompt = system_prompt
         self.mcp_servers = mcp_servers or {}
+
+        # Research & Planning feature flag
+        self.enable_research_planning = enable_research_planning
 
         # Initialize Claude SDK
         self.claude_sdk = ClaudeSDK(
@@ -50,9 +56,11 @@ class BaseAgent(ABC):
         # Register with A2A protocol
         a2a_protocol.register_agent(self)
 
+        rp_status = "✅ Enabled" if enable_research_planning else "❌ Disabled"
         print(f"✨ {self.agent_card.name} initialized")
         print(f"   Role: {self.agent_card.role}")
         print(f"   Capabilities: {', '.join(self.agent_card.capabilities[:3])}...")
+        print(f"   Research & Planning: {rp_status}")
 
     async def receive_message(self, message: A2AMessage) -> Dict[str, Any]:
         """
@@ -82,13 +90,17 @@ class BaseAgent(ABC):
             return {"error": f"Unsupported message type: {message.message_type}"}
 
     async def handle_task_request(self, message: A2AMessage) -> Dict[str, Any]:
-        """Handle incoming task request"""
+        """Handle incoming task request with optional research & planning"""
         task = Task(**message.content)
 
         print(f"🎯 {self.agent_card.name} processing task: {task.task_id}")
 
-        # Execute the task (implemented by subclass)
-        result = await self.execute_task(task)
+        # Execute with or without research & planning based on feature flag
+        if self.enable_research_planning:
+            result = await self.execute_task_with_research(task)
+        else:
+            # Backward compatibility: direct execution
+            result = await self.execute_task(task)
 
         # Return task response
         return {
@@ -98,6 +110,48 @@ class BaseAgent(ABC):
             "agent_id": self.agent_card.agent_id,
             "timestamp": message.timestamp
         }
+
+    async def execute_task_with_research(self, task: Task) -> Dict[str, Any]:
+        """
+        Execute task with research & planning phase
+
+        Workflow:
+        1. Research Phase: Gather context and information
+        2. Planning Phase: Create detailed execution plan
+        3. Execution Phase: Execute with plan guidance
+        4. Return result
+
+        Args:
+            task: Task to execute
+
+        Returns:
+            Task execution result
+        """
+        print(f"🔬 [{self.agent_card.name}] Executing with research & planning")
+
+        try:
+            # Phase 1 & 2: Research and Plan
+            research, plan = await self.research_and_plan(task)
+
+            # Phase 3: Execute with plan
+            result = await self.execute_task_with_plan(task, research, plan)
+
+            # Add research & planning metadata to result
+            if isinstance(result, dict):
+                result['research_used'] = True
+                result['research_summary'] = research.get('research_summary', 'Research completed')
+                result['plan_summary'] = plan.get('plan_summary', 'Plan created')
+
+            return result
+
+        except NotImplementedError:
+            # Agent hasn't implemented research & planning yet - fallback
+            print(f"   ⚠️  Research & planning not implemented, using direct execution")
+            return await self.execute_task(task)
+
+        except Exception as e:
+            print(f"   ❌ Research & planning error: {e}, falling back to direct execution")
+            return await self.execute_task(task)
 
     async def handle_review_request(self, message: A2AMessage) -> Dict[str, Any]:
         """Handle incoming review request"""

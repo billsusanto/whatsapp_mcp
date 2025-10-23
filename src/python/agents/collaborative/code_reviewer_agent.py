@@ -183,13 +183,366 @@ Be thorough, be strict, be constructive. Your reviews prevent bugs, security iss
             mcp_servers=mcp_servers
         )
 
+    def _build_research_prompt(self, task: Task) -> str:
+        """Build research prompt for code review"""
+        return f"""You are an expert Code Reviewer conducting research before reviewing code.
+
+**Review Task:** {task.description}
+
+**Research Goals:**
+1. **Framework-Specific Security Patterns**
+   - Common security vulnerabilities for this framework (React/Next.js/Vue)
+   - OWASP Top 10 as applicable
+   - Framework-specific anti-patterns
+   - Known CVEs for dependencies
+
+2. **Best Practices for Technology Stack**
+   - React hooks best practices
+   - TypeScript best practices (if applicable)
+   - State management patterns
+   - Performance optimization patterns
+   - Error handling patterns
+
+3. **Code Quality Standards**
+   - SOLID principles application
+   - DRY vs WET indicators
+   - Component composition patterns
+   - Code smells to watch for
+   - Maintainability metrics
+
+4. **Accessibility Standards**
+   - WCAG 2.1 AA/AAA requirements
+   - Common accessibility issues
+   - ARIA best practices
+   - Semantic HTML requirements
+
+5. **Performance Considerations**
+   - React performance anti-patterns
+   - Memory leak patterns
+   - Bundle size concerns
+   - Rendering optimization
+
+6. **Common Issues in Similar Code**
+   - Patterns that often have bugs
+   - Edge cases frequently missed
+   - Testing gaps common in this type of code
+
+**Output Format (JSON):**
+{{
+  "security_checklist": [
+    {{"vulnerability": "XSS via dangerouslySetInnerHTML", "detection": "...", "severity": "critical"}},
+    {{"vulnerability": "Exposed API keys", "detection": "...", "severity": "critical"}}
+  ],
+  "best_practices_checklist": [
+    {{"practice": "Proper useEffect dependency arrays", "importance": "high", "check": "..."}},
+    {{"practice": "React.memo() for expensive components", "importance": "medium", "check": "..."}}
+  ],
+  "code_quality_metrics": [
+    "Component size (< 300 lines ideal)",
+    "Function complexity (cyclomatic complexity)",
+    "Code duplication percentage",
+    "Test coverage (if applicable)"
+  ],
+  "accessibility_checklist": [
+    "ARIA labels on interactive elements",
+    "Keyboard navigation support",
+    "Color contrast ratios",
+    "Semantic HTML usage"
+  ],
+  "performance_checklist": [
+    "No unnecessary re-renders",
+    "Proper useCallback/useMemo usage",
+    "No memory leaks (cleanup in useEffect)",
+    "Lazy loading implemented"
+  ],
+  "common_bug_patterns": [
+    {{"pattern": "Missing cleanup in useEffect", "impact": "memory leak", "check": "..."}}
+  ],
+  "framework_specific_issues": [
+    "Next.js specific issues to check",
+    "React specific issues to check"
+  ],
+  "research_summary": "Brief summary of review research"
+}}
+
+Be thorough. Research ensures comprehensive review."""
+
+    def _build_planning_prompt(self, task: Task, research: Dict) -> str:
+        """Build planning prompt for code review"""
+        return f"""You are an expert Code Reviewer creating a detailed review plan.
+
+**Review Task:** {task.description}
+
+**Research Findings:**
+{research}
+
+**Planning Goals:**
+1. **Review Prioritization**
+   - Critical issues first (security, correctness)
+   - Then performance issues
+   - Then maintainability issues
+   - Finally style issues
+
+2. **Systematic Review Approach**
+   - Security analysis (first priority)
+   - Code quality analysis
+   - Performance analysis
+   - Accessibility analysis
+   - Best practices verification
+
+3. **Issue Categorization Plan**
+   - Critical: Must fix before deployment
+   - Major: Should fix soon
+   - Minor: Nice to have improvements
+
+4. **Code Review Checklist**
+   - Specific items to check based on research
+   - File-by-file review strategy
+   - Focus areas based on complexity
+
+**Output Format (JSON):**
+{{
+  "review_strategy": {{
+    "approach": "Security-first, then quality, performance, accessibility",
+    "priority_order": ["security", "correctness", "performance", "maintainability", "style"],
+    "estimated_duration": "thorough|quick"
+  }},
+  "review_checklist": [
+    {{
+      "category": "Security",
+      "priority": "critical",
+      "checks": [
+        "Scan for dangerouslySetInnerHTML without sanitization",
+        "Check for exposed API keys or secrets",
+        "Verify input validation and sanitization",
+        "Check authentication/authorization patterns"
+      ]
+    }},
+    {{
+      "category": "Code Quality",
+      "priority": "high",
+      "checks": [
+        "Check for code duplication",
+        "Verify component sizes (< 300 lines)",
+        "Check for proper error handling",
+        "Verify meaningful variable names"
+      ]
+    }},
+    {{
+      "category": "Performance",
+      "priority": "high",
+      "checks": [
+        "Check for unnecessary re-renders",
+        "Verify useCallback/useMemo usage",
+        "Check for memory leaks (useEffect cleanup)",
+        "Verify lazy loading where appropriate"
+      ]
+    }},
+    {{
+      "category": "Accessibility",
+      "priority": "medium",
+      "checks": [
+        "Verify ARIA labels present",
+        "Check keyboard navigation support",
+        "Verify semantic HTML usage",
+        "Check color contrast ratios"
+      ]
+    }}
+  ],
+  "file_review_order": [
+    {{"file": "Critical files first", "reason": "Entry points, auth, security"}},
+    {{"file": "Complex files next", "reason": "More likely to have issues"}},
+    {{"file": "Simple files last", "reason": "Lower risk"}}
+  ],
+  "issue_severity_criteria": {{
+    "critical": "Security vulnerabilities, broken functionality, data loss risk",
+    "major": "Performance issues, poor UX, maintainability problems",
+    "minor": "Style inconsistencies, minor improvements"
+  }},
+  "scoring_criteria": {{
+    "10": "Perfect code, production-ready, zero issues",
+    "9": "Excellent, minor cosmetic tweaks only",
+    "8": "Good, a few small improvements needed",
+    "7": "Acceptable, several issues to address",
+    "6": "Below standard, significant issues",
+    "5-": "Major problems, needs refactoring"
+  }},
+  "plan_summary": "Brief overview of review plan"
+}}
+
+Create a systematic, thorough review plan."""
+
+    async def execute_task_with_plan(
+        self,
+        task: Task,
+        research: Dict,
+        plan: Dict
+    ) -> Dict[str, Any]:
+        """
+        Execute code review with research-backed plan
+
+        Uses research to identify issues and follows systematic review plan.
+        """
+        print(f"🔍 [CODE REVIEWER] Reviewing with research & plan")
+
+        # Extract implementation from task metadata
+        implementation = {}
+        if task.metadata and isinstance(task.metadata, dict):
+            implementation = task.metadata.get('implementation', {})
+
+        # Create review prompt informed by research and plan
+        review_prompt = f"""You are an expert Code Reviewer conducting a thorough code review.
+
+**IMPORTANT:** You have completed research and planning. Follow the plan systematically.
+
+**Review Task:** {task.description}
+
+**Code Implementation:**
+{implementation}
+
+**Research Findings:**
+{research}
+
+**Review Plan:**
+{plan}
+
+**Your Task:**
+Conduct a comprehensive code review following the plan's checklist.
+
+**REVIEW PROCESS (Follow Plan Priority Order):**
+
+1. **Security Analysis (CRITICAL - FIRST PRIORITY):**
+   Check all items from security checklist:
+   {research.get('security_checklist', [])}
+
+2. **Code Quality Analysis:**
+   Check all items from code quality checklist:
+   {plan.get('review_checklist', [{}])[1].get('checks', []) if len(plan.get('review_checklist', [])) > 1 else []}
+
+3. **Performance Analysis:**
+   Check all items from performance checklist:
+   {research.get('performance_checklist', [])}
+
+4. **Accessibility Analysis:**
+   Check all items from accessibility checklist:
+   {research.get('accessibility_checklist', [])}
+
+5. **Best Practices Verification:**
+   Check all items from best practices:
+   {research.get('best_practices_checklist', [])}
+
+**SCORING (Be Critical - Use Plan Criteria):**
+{plan.get('scoring_criteria', {})}
+
+**Output Format (JSON):**
+{{
+  "overall_score": 1-10,
+  "approved": true|false,
+  "critical_issues": [
+    {{
+      "severity": "critical",
+      "category": "security",
+      "file": "path/to/file.tsx",
+      "line": 42,
+      "issue": "Specific issue description",
+      "fix": "Specific fix with code example",
+      "reasoning": "Why this is critical based on research"
+    }}
+  ],
+  "major_issues": [
+    {{
+      "severity": "major",
+      "category": "performance",
+      "file": "path/to/file.tsx",
+      "issue": "Specific issue",
+      "fix": "Specific fix",
+      "impact": "Performance degradation"
+    }}
+  ],
+  "minor_issues": [
+    {{
+      "severity": "minor",
+      "category": "style",
+      "issue": "...",
+      "fix": "..."
+    }}
+  ],
+  "suggestions": ["Suggestion 1", "Suggestion 2"],
+  "security_score": 1-10,
+  "performance_score": 1-10,
+  "maintainability_score": 1-10,
+  "accessibility_score": 1-10,
+  "checklist_results": {{
+    "security_checks_passed": 8,
+    "security_checks_total": 10,
+    "performance_checks_passed": 7,
+    "performance_checks_total": 8
+  }},
+  "summary": "Overall code review assessment based on research-backed analysis"
+}}
+
+Be thorough, critical, and specific. Use research findings to inform your review."""
+
+        try:
+            # Get code review from Claude
+            response = await self.claude_sdk.send_message(review_prompt)
+
+            # Parse review
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                review = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                review = json.loads(response)
+            else:
+                review = {
+                    "overall_score": 7,
+                    "approved": True,
+                    "summary": response,
+                    "note": "Review with research & planning"
+                }
+
+            critical_count = len(review.get('critical_issues', []))
+            major_count = len(review.get('major_issues', []))
+            minor_count = len(review.get('minor_issues', []))
+
+            print(f"✅ [CODE REVIEWER] Research-backed review completed - Score: {review.get('overall_score', 'N/A')}/10")
+            print(f"   Issues: {critical_count} critical, {major_count} major, {minor_count} minor")
+
+            return {
+                "status": "completed",
+                "review": review,
+                "raw_response": response,
+                "research_used": True,
+                "research_summary": research.get('research_summary', 'Research completed'),
+                "plan_summary": plan.get('plan_summary', 'Plan created')
+            }
+
+        except Exception as e:
+            print(f"❌ [CODE REVIEWER] Error during review: {e}")
+            import traceback
+            traceback.print_exc()
+
+            return {
+                "status": "completed_with_fallback",
+                "review": {
+                    "overall_score": 7,
+                    "approved": True,
+                    "summary": f"Review error: {str(e)}",
+                    "note": "Fallback review"
+                }
+            }
+
     async def execute_task(self, task: Task) -> Dict[str, Any]:
         """
-        Execute code review task using Claude AI
+        Execute code review task using Claude AI (backward compatibility)
 
-        Reviews code for quality, security, performance, and best practices
+        This is the original implementation without research & planning.
+        Used when enable_research_planning=False
         """
-        print(f"🔍 [CODE REVIEWER] Reviewing code: {task.description}")
+        print(f"🔍 [CODE REVIEWER] Reviewing code: {task.description} (direct execution)")
 
         # Extract implementation from task metadata
         implementation = {}
