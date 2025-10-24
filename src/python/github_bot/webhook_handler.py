@@ -115,11 +115,12 @@ async def webhook_receive(request: Request, background_tasks: BackgroundTasks):
             status_code=200
         )
 
-    # Check for @droid mention
-    command = extract_droid_mention(comment_body)
+    # Check for @Supernova-Droid mention (GitHub App username)
+    # Note: GitHub adds [bot] suffix, but we check without it for flexibility
+    command = extract_droid_mention(comment_body, bot_name="Supernova-Droid")
 
     if not command:
-        logger.debug("No @droid mention found in comment")
+        logger.debug("No @Supernova-Droid mention found in comment")
         return JSONResponse(
             content={"status": "ignored", "reason": "no mention"},
             status_code=200

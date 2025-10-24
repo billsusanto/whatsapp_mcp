@@ -80,6 +80,12 @@ COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
     && rm -rf /wheels
 
+# Verify critical packages are installed (informational only - doesn't fail build)
+RUN python -c "import fastapi; print('✓ FastAPI installed')" && \
+    python -c "import anthropic; print('✓ Anthropic SDK installed')" && \
+    python -c "import redis; print('✓ Redis installed')" && \
+    python -c "try:\n    import logfire\n    print('✓ Logfire installed')\nexcept ImportError:\n    print('⚠️ Logfire not installed - telemetry will be disabled')" || true
+
 # Create non-root user
 RUN useradd -m -u 1001 agentuser
 
@@ -98,6 +104,9 @@ USER agentuser
 # - WHATSAPP_WEBHOOK_VERIFY_TOKEN (required)
 # - GITHUB_PERSONAL_ACCESS_TOKEN (optional)
 # - NETLIFY_PERSONAL_ACCESS_TOKEN (optional)
+# - LOGFIRE_TOKEN (optional - for telemetry/observability)
+# - ENABLE_LOGFIRE (optional - set to "true" to enable, defaults to "false")
+# - ENV (optional - "development" or "production", defaults to "production")
 # - PORT (automatically set by Render, defaults to 8000)
 
 # ============================================

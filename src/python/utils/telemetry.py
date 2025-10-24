@@ -6,8 +6,16 @@ Provides observability for the WhatsApp Multi-Agent System
 import os
 from typing import Optional, Dict, Any
 from functools import wraps
-import logfire
-from logfire import LogfireSpan
+
+# Try to import logfire, but make it optional
+try:
+    import logfire
+    from logfire import LogfireSpan
+    LOGFIRE_AVAILABLE = True
+except ImportError:
+    LOGFIRE_AVAILABLE = False
+    logfire = None
+    LogfireSpan = None
 
 # Initialize Logfire (safe to call multiple times)
 _initialized = False
@@ -22,6 +30,12 @@ def initialize_logfire():
     global _initialized
 
     if _initialized:
+        return
+
+    # Check if logfire package is available
+    if not LOGFIRE_AVAILABLE:
+        print("⚠️  Logfire package not installed (pip install logfire)")
+        print("   Continuing without telemetry...")
         return
 
     # Check if Logfire is enabled
@@ -41,8 +55,6 @@ def initialize_logfire():
             environment=os.getenv("ENV", "production"),
             # Send console logs to Logfire
             send_to_logfire="if-token-present",
-            # Configure sampling (100% in dev, 10% in prod for cost savings)
-            sampling=1.0 if os.getenv("ENV") != "production" else 0.1,
         )
 
         print("✅ Logfire telemetry initialized")
@@ -60,7 +72,7 @@ def instrument_fastapi(app):
     Args:
         app: FastAPI application instance
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:
@@ -75,7 +87,7 @@ def instrument_anthropic():
     Instrument Anthropic Claude SDK with Logfire
     Tracks LLM calls, tokens, and costs
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:
@@ -90,7 +102,7 @@ def instrument_httpx():
     Instrument HTTPX for tracking external HTTP calls
     (WhatsApp API, GitHub API, Netlify API)
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:
@@ -104,7 +116,7 @@ def instrument_aiohttp():
     """
     Instrument aiohttp for A2A protocol tracking
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:
@@ -128,7 +140,7 @@ def trace_agent_task(agent_name: str):
             ...
     """
     def decorator(func):
-        if not _initialized:
+        if not LOGFIRE_AVAILABLE or not _initialized:
             return func
 
         @wraps(func)
@@ -161,7 +173,7 @@ def trace_workflow(workflow_type: str):
             ...
     """
     def decorator(func):
-        if not _initialized:
+        if not LOGFIRE_AVAILABLE or not _initialized:
             return func
 
         @wraps(func)
@@ -197,7 +209,7 @@ def trace_a2a_communication():
             ...
     """
     def decorator(func):
-        if not _initialized:
+        if not LOGFIRE_AVAILABLE or not _initialized:
             return func
 
         @wraps(func)
@@ -239,7 +251,7 @@ class trace_operation:
         self.span: Optional[LogfireSpan] = None
 
     def __enter__(self):
-        if _initialized:
+        if LOGFIRE_AVAILABLE and _initialized:
             self.span = logfire.span(self.operation_name, **self.attributes)
             return self.span.__enter__()
         return None
@@ -263,7 +275,7 @@ def log_metric(metric_name: str, value: float, **attributes):
     Usage:
         log_metric("agent.response_time", 1.234, agent="designer")
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:
@@ -284,7 +296,7 @@ def log_event(event_name: str, **attributes):
     Usage:
         log_event("user.message_received", phone_number=phone, message_type="text")
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:
@@ -304,7 +316,7 @@ def log_user_action(action: str, phone_number: str, **attributes):
     Usage:
         log_user_action("message_sent", phone_number, message_length=123)
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     # Hash phone number for privacy
@@ -329,7 +341,7 @@ def set_user_context(phone_number: str):
     Usage:
         set_user_context("+1234567890")
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     import hashlib
@@ -353,7 +365,7 @@ def track_session_event(event_type: str, phone_number: str, **data):
         track_session_event("session_created", phone_number)
         track_session_event("session_expired", phone_number, ttl_minutes=60)
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     import hashlib
@@ -384,7 +396,7 @@ def log_error(error: Exception, context: str = "", **attributes):
         except Exception as e:
             log_error(e, "webhook_processing", phone_number=phone)
     """
-    if not _initialized:
+    if not LOGFIRE_AVAILABLE or not _initialized:
         return
 
     try:

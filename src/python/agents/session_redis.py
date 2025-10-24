@@ -68,33 +68,24 @@ class RedisSessionManager:
             # Deserialize existing session
             session = json.loads(session_json)
 
-            # Convert ISO format strings back to datetime objects for last_active
-            session["last_active"] = datetime.utcnow()
-
-            # Keep created_at as ISO string for consistency
-            if isinstance(session.get("created_at"), str):
-                # Already in ISO format, leave it
-                pass
+            # Update last_active timestamp (keep as ISO string for JSON serialization)
+            session["last_active"] = datetime.utcnow().isoformat()
 
             # Update in Redis with TTL refresh
             self.redis_client.setex(key, self.ttl_seconds, json.dumps(session))
 
             return session
         else:
-            # Create new session
+            # Create new session (all datetime fields as ISO strings for JSON serialization)
             session = {
                 "phone_number": phone_number,
                 "conversation_history": [],
                 "created_at": datetime.utcnow().isoformat(),
-                "last_active": datetime.utcnow()
+                "last_active": datetime.utcnow().isoformat()
             }
 
             # Store in Redis with TTL
-            # Convert to JSON-serializable format
-            session_to_store = session.copy()
-            session_to_store["last_active"] = session["last_active"].isoformat()
-
-            self.redis_client.setex(key, self.ttl_seconds, json.dumps(session_to_store))
+            self.redis_client.setex(key, self.ttl_seconds, json.dumps(session))
             print(f"Created new session for {phone_number}")
 
             return session
@@ -122,14 +113,12 @@ class RedisSessionManager:
             session["conversation_history"] = session["conversation_history"][-self.max_history:]
             print(f"Trimmed history for {phone_number} to {self.max_history} messages")
 
-        # Update last active
-        session["last_active"] = datetime.utcnow()
+        # Update last active (keep as ISO string for JSON serialization)
+        session["last_active"] = datetime.utcnow().isoformat()
 
         # Save to Redis
         key = self._get_session_key(phone_number)
-        session_to_store = session.copy()
-        session_to_store["last_active"] = session["last_active"].isoformat()
-        self.redis_client.setex(key, self.ttl_seconds, json.dumps(session_to_store))
+        self.redis_client.setex(key, self.ttl_seconds, json.dumps(session))
 
     def get_conversation_history(self, phone_number: str) -> List[Dict]:
         """

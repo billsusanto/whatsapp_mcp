@@ -184,7 +184,7 @@ def is_bot_comment(comment_author: str, bot_names: list = None) -> bool:
         True if comment is from a bot
     """
     if bot_names is None:
-        bot_names = ["github-actions", "dependabot", "renovate"]
+        bot_names = ["github-actions", "dependabot", "renovate", "supernova-droid"]
 
     # Check if username ends with [bot]
     if comment_author.endswith("[bot]"):

@@ -20,6 +20,14 @@ except ImportError:
     MULTI_AGENT_AVAILABLE = False
     print("⚠️  Multi-agent system not available")
 
+# Import WhatsApp client for multi-agent notifications
+try:
+    from whatsapp_mcp.client import WhatsAppClient
+    WHATSAPP_CLIENT_AVAILABLE = True
+except ImportError:
+    WHATSAPP_CLIENT_AVAILABLE = False
+    print("⚠️  WhatsApp client not available")
+
 
 class AgentManager:
     """Manages multiple agent instances"""
@@ -36,6 +44,16 @@ class AgentManager:
         # Session TTL: 60 minutes (1 hour), max history: 10 messages for memory optimization
         self.session_manager = SessionManager(ttl_minutes=60, max_history=10)
         self.agents: Dict[str, Agent] = {}
+
+        # Initialize WhatsApp client for multi-agent notifications
+        self.whatsapp_client = None
+        if WHATSAPP_CLIENT_AVAILABLE:
+            try:
+                self.whatsapp_client = WhatsAppClient()
+                print("✅ WhatsApp client initialized for multi-agent notifications")
+            except Exception as e:
+                print(f"⚠️  WhatsApp client initialization failed: {e}")
+                self.whatsapp_client = None
 
         # Build available MCP servers dict
         self.available_mcp_servers = {}
@@ -117,6 +135,24 @@ class AgentManager:
         print(f"\nAgentManager initialized")
         print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
         print(f"Multi-agent mode: {'✅ Enabled' if self.multi_agent_enabled else '❌ Disabled'}")
+
+    async def send_whatsapp_message(self, phone_number: str, message: str):
+        """
+        Send a WhatsApp message to a user
+        Used as callback for multi-agent orchestrator notifications
+
+        Args:
+            phone_number: User's WhatsApp phone number
+            message: Message text to send
+        """
+        if self.whatsapp_client:
+            try:
+                self.whatsapp_client.send_message(phone_number, message)
+                print(f"📱 Sent notification to {phone_number}: {message[:50]}...")
+            except Exception as e:
+                print(f"❌ Failed to send WhatsApp message to {phone_number}: {e}")
+        else:
+            print(f"⚠️  WhatsApp client not available, cannot send message to {phone_number}")
 
     def get_or_create_agent(self, phone_number: str) -> Agent:
         """
@@ -220,8 +256,10 @@ Please let me know!""".format(active_orchestrator.original_prompt[:100])
             try:
                 # Create new orchestrator for this user
                 orchestrator = CollaborativeOrchestrator(
-                    mcp_servers=self.available_mcp_servers,
-                    user_phone_number=phone_number
+                    user_id=phone_number,
+                    send_message_callback=self.send_whatsapp_message,
+                    platform="whatsapp",
+                    available_mcp_servers=self.available_mcp_servers
                 )
                 self.orchestrators[phone_number] = orchestrator
 
