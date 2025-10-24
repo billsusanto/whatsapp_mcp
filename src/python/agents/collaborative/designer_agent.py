@@ -6,6 +6,7 @@ Creates design specifications for webapps
 from typing import Dict, Any
 from .base_agent import BaseAgent
 from .models import AgentCard, AgentRole, Task, DesignSpecification
+from utils.telemetry import trace_operation, log_event, log_metric, log_error
 
 
 class DesignerAgent(BaseAgent):
@@ -260,6 +261,13 @@ Create a comprehensive, actionable design plan."""
         """
         print(f"🎨 [DESIGNER] Creating design with research & plan")
 
+        # Log design task start
+        log_event("designer.task_start",
+                 task_id=task.task_id,
+                 has_research=True,
+                 has_plan=True,
+                 task_description_length=len(task.description))
+
         # Create enhanced design prompt informed by research and plan
         design_prompt = f"""You are a professional UI/UX designer creating a comprehensive design specification.
 
@@ -325,8 +333,19 @@ CRITICAL GUIDELINES:
 Create a production-ready, comprehensive design specification informed by research and planning."""
 
         try:
-            # Get design from Claude with research & plan context
-            response = await self.claude_sdk.send_message(design_prompt)
+            # Trace Claude API call for design generation
+            with trace_operation("designer_create_spec_with_plan",
+                               task_id=task.task_id,
+                               has_research=True,
+                               has_plan=True,
+                               prompt_length=len(design_prompt)) as span:
+
+                # Get design from Claude with research & plan context
+                response = await self.claude_sdk.send_message(design_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("designer.llm_response_length", len(response))
 
             # Parse design specification
             import json
@@ -342,6 +361,20 @@ Create a production-ready, comprehensive design specification informed by resear
                     "design_description": response,
                     "note": "Design created with research & planning"
                 }
+
+            # Track design spec metrics
+            components_count = len(design_spec.get("components", []))
+            has_design_system = bool(design_spec.get("design_tokens") or design_spec.get("colors"))
+            has_accessibility = bool(design_spec.get("accessibility_notes"))
+
+            log_event("designer.spec_created",
+                     task_id=task.task_id,
+                     components_count=components_count,
+                     has_design_system=has_design_system,
+                     has_accessibility=has_accessibility,
+                     research_backed=True)
+
+            log_metric("designer.components_count", components_count)
 
             print(f"✅ [DESIGNER] Research-backed design specification created")
 
@@ -359,6 +392,12 @@ Create a production-ready, comprehensive design specification informed by resear
             import traceback
             traceback.print_exc()
 
+            # Log error with context
+            log_error(e, "designer_execute_with_plan",
+                     task_id=task.task_id,
+                     has_research=True,
+                     has_plan=True)
+
             # Fallback
             return {
                 "status": "completed_with_fallback",
@@ -375,6 +414,14 @@ Create a production-ready, comprehensive design specification informed by resear
         This is the original implementation without research & planning.
         """
         print(f"🎨 [DESIGNER] Creating design for: {task.description} (direct execution)")
+
+        # Log design task start (direct mode)
+        log_event("designer.task_start",
+                 task_id=task.task_id,
+                 has_research=False,
+                 has_plan=False,
+                 execution_mode="direct",
+                 task_description_length=len(task.description))
 
         # Create comprehensive design prompt
         design_prompt = f"""You are a professional UI/UX designer creating a complete design specification for a webapp.
@@ -438,8 +485,19 @@ Make sure the design is:
 - Implementation-ready"""
 
         try:
-            # Get design from Claude
-            response = await self.claude_sdk.send_message(design_prompt)
+            # Trace Claude API call for design generation (direct mode)
+            with trace_operation("designer_create_spec_direct",
+                               task_id=task.task_id,
+                               has_research=False,
+                               has_plan=False,
+                               prompt_length=len(design_prompt)) as span:
+
+                # Get design from Claude
+                response = await self.claude_sdk.send_message(design_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("designer.llm_response_length", len(response))
 
             # Try to extract JSON from response
             import json
@@ -458,6 +516,21 @@ Make sure the design is:
                     "note": "Design created by Claude AI - parse description for implementation details"
                 }
 
+            # Track design spec metrics
+            components_count = len(design_spec.get("components", []))
+            has_design_system = bool(design_spec.get("colors") or design_spec.get("typography"))
+            has_accessibility = bool(design_spec.get("accessibility") or "accessibility" in str(design_spec).lower())
+
+            log_event("designer.spec_created",
+                     task_id=task.task_id,
+                     components_count=components_count,
+                     has_design_system=has_design_system,
+                     has_accessibility=has_accessibility,
+                     research_backed=False,
+                     execution_mode="direct")
+
+            log_metric("designer.components_count", components_count)
+
             print(f"✅ [DESIGNER] Design specification created")
 
             return {
@@ -470,6 +543,13 @@ Make sure the design is:
             print(f"❌ [DESIGNER] Error creating design: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "designer_execute_direct",
+                     task_id=task.task_id,
+                     has_research=False,
+                     has_plan=False,
+                     execution_mode="direct")
 
             # Fallback to structured placeholder
             return {
@@ -495,6 +575,12 @@ Make sure the design is:
         Phase 2: Real design review with Claude
         """
         print(f"🔍 [DESIGNER] Reviewing implementation")
+
+        # Log review start
+        log_event("designer.review_start",
+                 artifact_type="frontend_implementation",
+                 has_original_design=bool(artifact.get("original_design")),
+                 has_implementation=bool(artifact.get("implementation")))
 
         # Extract design spec and implementation details
         original_design = artifact.get("original_design", {})
@@ -568,8 +654,16 @@ Output your review as JSON with:
 Be constructive, specific, and reference actual code and design spec values in your feedback."""
 
         try:
-            # Get review from Claude
-            response = await self.claude_sdk.send_message(review_prompt)
+            # Trace Claude API call for review
+            with trace_operation("designer_review_implementation",
+                               artifact_type="frontend_implementation",
+                               prompt_length=len(review_prompt)) as span:
+
+                # Get review from Claude
+                response = await self.claude_sdk.send_message(review_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
 
             # Try to extract JSON from response
             import json
@@ -592,6 +686,20 @@ Be constructive, specific, and reference actual code and design spec values in y
                     "note": "Review completed - see feedback for details"
                 }
 
+            # Track review metrics
+            review_score = review.get("score", 0)
+            is_approved = review.get("approved", False)
+            critical_issues_count = len(review.get("critical_issues", []))
+            feedback_count = len(review.get("feedback", []))
+
+            log_event("designer.review_completed",
+                     review_score=review_score,
+                     approved=is_approved,
+                     critical_issues_count=critical_issues_count,
+                     feedback_count=feedback_count)
+
+            log_metric("designer.review_score", review_score)
+
             print(f"✅ [DESIGNER] Review completed - Approved: {review.get('approved', True)}")
 
             return review
@@ -600,6 +708,10 @@ Be constructive, specific, and reference actual code and design spec values in y
             print(f"❌ [DESIGNER] Error during review: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "designer_review",
+                     artifact_type="frontend_implementation")
 
             # Fallback to basic approval
             return {

@@ -8,6 +8,7 @@ NOW USING A2A PROTOCOL for all agent communication
 from typing import Dict, Optional
 import sys
 import os
+import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from sdk.claude_sdk import ClaudeSDK
@@ -28,6 +29,9 @@ from utils.telemetry import (
     log_metric,
     measure_performance
 )
+
+# Import system health monitor
+from utils.health_monitor import system_health_monitor
 
 
 class CollaborativeOrchestrator:
@@ -1263,6 +1267,15 @@ Please try again or provide more details."""
         # Realistic estimate accounting for quality loops and deployment retries: ~15 steps average
         self.workflow_steps_total = 15
 
+        # Track workflow start
+        workflow_id = f"full_build_{int(time.time())}"
+        workflow_start_time = time.time()
+        system_health_monitor.track_workflow_start(
+            workflow_type="full_build",
+            workflow_id=workflow_id,
+            metadata={"user_prompt_length": len(user_prompt)}
+        )
+
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
 
@@ -1315,9 +1328,23 @@ Please try again or provide more details."""
             approved = False
             current_implementation = implementation
 
+            # Track quality loop start
+            log_event("orchestrator.quality_loop_started",
+                     min_quality_score=self.min_quality_score,
+                     max_iterations=self.max_review_iterations)
+
+            quality_loop_start_time = time.time()
+
             while review_iteration < self.max_review_iterations:
                 review_iteration += 1
                 print(f"\n   Review iteration {review_iteration}/{self.max_review_iterations}")
+
+                # Track iteration start
+                iteration_start_time = time.time()
+                log_event("orchestrator.quality_iteration_started",
+                         iteration_number=review_iteration,
+                         max_iterations=self.max_review_iterations,
+                         previous_score=score)
 
                 # Designer reviews implementation (A2A - don't cleanup during loop)
                 review_artifact = {
@@ -1333,21 +1360,66 @@ Please try again or provide more details."""
                 score = review.get('score', 9)
                 feedback = review.get('feedback', [])
 
+                # Calculate iteration duration
+                iteration_duration_ms = (time.time() - iteration_start_time) * 1000
+
                 print(f"   Score: {score}/10 - {'✅ Approved' if approved else '⚠️ Needs improvement'}")
+
+                # Track iteration completion
+                log_event("orchestrator.quality_iteration_completed",
+                         iteration_number=review_iteration,
+                         score=score,
+                         approved=approved,
+                         feedback_count=len(feedback),
+                         iteration_duration_ms=iteration_duration_ms,
+                         meets_quality_standard=score >= self.min_quality_score)
+
+                # Track score metrics
+                log_metric("orchestrator.quality_iteration_score", score)
+                log_metric("orchestrator.quality_iteration_duration_ms", iteration_duration_ms)
 
                 # Check if quality standard is met
                 if score >= self.min_quality_score:
                     print(f"   ✅ Quality standard met! (Score: {score}/10 >= {self.min_quality_score}/10)")
+
+                    # Track quality loop success
+                    quality_loop_duration_ms = (time.time() - quality_loop_start_time) * 1000
+                    log_event("orchestrator.quality_loop_succeeded",
+                             final_score=score,
+                             total_iterations=review_iteration,
+                             quality_loop_duration_ms=quality_loop_duration_ms)
+                    log_metric("orchestrator.quality_loop_iterations", review_iteration)
+                    log_metric("orchestrator.quality_loop_duration_ms", quality_loop_duration_ms)
+
                     break
 
                 # Quality not met - need improvement
                 if review_iteration >= self.max_review_iterations:
                     print(f"   ⚠️  Max iterations reached - proceeding with current quality (Score: {score}/10)")
+
+                    # Track quality loop max iterations reached
+                    quality_loop_duration_ms = (time.time() - quality_loop_start_time) * 1000
+                    log_event("orchestrator.quality_loop_max_iterations_reached",
+                             final_score=score,
+                             total_iterations=review_iteration,
+                             quality_loop_duration_ms=quality_loop_duration_ms,
+                             quality_gap=self.min_quality_score - score)
+                    log_metric("orchestrator.quality_loop_iterations", review_iteration)
+                    log_metric("orchestrator.quality_loop_duration_ms", quality_loop_duration_ms)
+
                     break
 
                 # Ask Frontend to improve based on feedback (A2A - don't cleanup during loop)
                 print(f"   🔧 Quality below standard ({score}/10 < {self.min_quality_score}/10) - requesting improvements (A2A)...")
                 print(f"   📋 Feedback: {', '.join(feedback) if feedback else 'General improvements needed'}")
+
+                # Track improvement request
+                log_event("orchestrator.improvement_requested",
+                         iteration_number=review_iteration,
+                         current_score=score,
+                         target_score=self.min_quality_score,
+                         feedback_count=len(feedback),
+                         quality_gap=self.min_quality_score - score)
 
                 improvement_result = await self._send_task_to_agent(
                     agent_id=self.FRONTEND_ID,
@@ -1372,9 +1444,24 @@ Please address all feedback and improve the implementation to meet the quality s
                 self.current_implementation = current_implementation  # Update for refinements
                 print(f"   ✓ Frontend provided improved implementation via A2A")
 
+                # Track improvement completion
+                log_event("orchestrator.improvement_completed",
+                         iteration_number=review_iteration,
+                         previous_score=score)
+
             # Use the final implementation (after quality loop)
             implementation = current_implementation
             self.current_implementation = implementation  # Final update
+
+            # Track final quality loop metrics
+            quality_loop_duration_ms = (time.time() - quality_loop_start_time) * 1000
+            log_event("orchestrator.quality_loop_completed",
+                     final_score=score,
+                     total_iterations=review_iteration,
+                     quality_loop_duration_ms=quality_loop_duration_ms,
+                     quality_met=score >= self.min_quality_score)
+            log_metric("orchestrator.quality_loop_final_score", score)
+            log_metric("orchestrator.quality_loop_total_iterations", review_iteration)
 
             print(f"\n✓ Quality verification completed via A2A: Score {score}/10 after {review_iteration} iteration(s)")
 
@@ -1408,12 +1495,38 @@ Please address all feedback and improve the implementation to meet the quality s
             print("\n" + "-" * 60)
             print("✅ [ORCHESTRATOR] Full build complete (A2A Protocol)!\n")
 
+            # Track workflow success
+            workflow_duration_ms = (time.time() - workflow_start_time) * 1000
+            system_health_monitor.track_workflow_success(
+                workflow_type="full_build",
+                workflow_id=workflow_id,
+                duration_ms=workflow_duration_ms,
+                metadata={
+                    "review_score": score,
+                    "review_iterations": review_iteration,
+                    "build_attempts": build_attempts,
+                    "deployment_url": deployment_url
+                }
+            )
+
             # Mark as inactive and delete state after successful completion
             self.is_active = False
             self.current_phase = None
             await self._delete_state()
 
             return response
+
+        except Exception as e:
+            # Track workflow error
+            workflow_duration_ms = (time.time() - workflow_start_time) * 1000
+            system_health_monitor.track_workflow_error(
+                workflow_type="full_build",
+                workflow_id=workflow_id,
+                error=e,
+                duration_ms=workflow_duration_ms,
+                metadata={"user_prompt_length": len(user_prompt)}
+            )
+            raise
 
         finally:
             # Clean up all agents used in this workflow to free resources
@@ -1429,6 +1542,15 @@ Please address all feedback and improve the implementation to meet the quality s
         # Set total steps for progress tracking: Fix (1-3) + Deploy retries (1-10) + Frontend fixes (0-5) = 2-18 steps
         # Realistic estimate: ~8 steps average
         self.workflow_steps_total = 8
+
+        # Track workflow start
+        workflow_id = f"bug_fix_{int(time.time())}"
+        workflow_start_time = time.time()
+        system_health_monitor.track_workflow_start(
+            workflow_type="bug_fix",
+            workflow_id=workflow_id,
+            metadata={"user_prompt_length": len(user_prompt)}
+        )
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -1476,6 +1598,19 @@ Please address all feedback and improve the implementation to meet the quality s
 
         print("\n" + "-" * 60)
         print("✅ [ORCHESTRATOR] Bug fix complete (A2A)!\n")
+
+        # Track workflow success
+        workflow_duration_ms = (time.time() - workflow_start_time) * 1000
+        system_health_monitor.track_workflow_success(
+            workflow_type="bug_fix",
+            workflow_id=workflow_id,
+            duration_ms=workflow_duration_ms,
+            metadata={
+                "build_attempts": build_attempts,
+                "deployment_url": deployment_url
+            }
+        )
+
         return response
 
     @trace_workflow("redeploy")
@@ -1485,6 +1620,15 @@ Please address all feedback and improve the implementation to meet the quality s
 
         # Set total steps for progress tracking: Deploy only = 1 step
         self.workflow_steps_total = 1
+
+        # Track workflow start
+        workflow_id = f"redeploy_{int(time.time())}"
+        workflow_start_time = time.time()
+        system_health_monitor.track_workflow_start(
+            workflow_type="redeploy",
+            workflow_id=workflow_id,
+            metadata={"user_prompt_length": len(user_prompt)}
+        )
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -1532,6 +1676,16 @@ Respond with ONLY the deployment URL."""
 
         print("\n" + "-" * 60)
         print("✅ [ORCHESTRATOR] Redeploy complete!\n")
+
+        # Track workflow success
+        workflow_duration_ms = (time.time() - workflow_start_time) * 1000
+        system_health_monitor.track_workflow_success(
+            workflow_type="redeploy",
+            workflow_id=workflow_id,
+            duration_ms=workflow_duration_ms,
+            metadata={"deployment_url": deployment_url}
+        )
+
         return response
 
     @trace_workflow("design_only")
@@ -1541,6 +1695,15 @@ Respond with ONLY the deployment URL."""
 
         # Set total steps for progress tracking: Design only = 1 step
         self.workflow_steps_total = 1
+
+        # Track workflow start
+        workflow_id = f"design_only_{int(time.time())}"
+        workflow_start_time = time.time()
+        system_health_monitor.track_workflow_start(
+            workflow_type="design_only",
+            workflow_id=workflow_id,
+            metadata={"user_prompt_length": len(user_prompt)}
+        )
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -1574,6 +1737,16 @@ Respond with ONLY the deployment URL."""
 
         print("\n" + "-" * 60)
         print("✅ [ORCHESTRATOR] Design complete (A2A)!\n")
+
+        # Track workflow success
+        workflow_duration_ms = (time.time() - workflow_start_time) * 1000
+        system_health_monitor.track_workflow_success(
+            workflow_type="design_only",
+            workflow_id=workflow_id,
+            duration_ms=workflow_duration_ms,
+            metadata={"has_design_spec": bool(design_spec)}
+        )
+
         return response
 
     async def _ai_decide_step_executor(self, step: str, user_prompt: str, agents_available: list, context: Dict) -> Dict:
@@ -1673,6 +1846,19 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
         """
         print(f"\n🔮 Starting CUSTOM workflow with AI-powered step routing (A2A Protocol)")
         print(f"📋 AI Planner reasoning: {plan.get('reasoning', 'N/A')}")
+
+        # Track workflow start
+        workflow_id = f"custom_{int(time.time())}"
+        workflow_start_time = time.time()
+        system_health_monitor.track_workflow_start(
+            workflow_type="custom",
+            workflow_id=workflow_id,
+            metadata={
+                "user_prompt_length": len(user_prompt),
+                "steps_count": len(plan.get('steps', [])),
+                "agents_needed": plan.get('agents_needed', [])
+            }
+        )
 
         if plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -1858,6 +2044,20 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
 
         print("\n" + "-" * 60)
         print("✅ [ORCHESTRATOR] Custom workflow complete (A2A)!\n")
+
+        # Track workflow success
+        workflow_duration_ms = (time.time() - workflow_start_time) * 1000
+        system_health_monitor.track_workflow_success(
+            workflow_type="custom",
+            workflow_id=workflow_id,
+            duration_ms=workflow_duration_ms,
+            metadata={
+                "steps_executed": len(steps),
+                "agents_used": agents_needed,
+                "has_deployment": bool(context.get('deployment_url'))
+            }
+        )
+
         return response
 
     # ==========================================
@@ -1881,13 +2081,33 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
                 'build_errors': list_of_errors_encountered
             }
         """
+        # Log deployment pipeline start
+        from utils.telemetry import trace_operation, log_event, log_metric, log_error
+        import time
+
+        deployment_start_time = time.time()
+
+        log_event("deployment.pipeline_started",
+                 max_retries=self.max_build_retries,
+                 has_implementation=bool(implementation),
+                 has_design_spec=bool(design_spec))
+
         attempts = 0
         current_implementation = implementation
         all_build_errors = []
 
         while attempts < self.max_build_retries:
             attempts += 1
+            attempt_start_time = time.time()
+
             print(f"\n🔨 Deployment attempt {attempts}/{self.max_build_retries}")
+
+            # Log deployment attempt start
+            log_event("deployment.attempt_started",
+                     attempt=attempts,
+                     max_attempts=self.max_build_retries,
+                     is_retry=attempts > 1,
+                     previous_errors_count=len(all_build_errors))
 
             # Call DevOps agent to deploy (includes GitHub setup, push, Netlify deploy, build verification)
             try:
@@ -1943,8 +2163,31 @@ If successful, return the live deployment URL.""",
 
                 # Success!
                 if build_successful and deployment_url:
+                    attempt_duration_ms = (time.time() - attempt_start_time) * 1000
+                    total_duration_ms = (time.time() - deployment_start_time) * 1000
+
                     print(f"✅ Build successful on attempt {attempts}")
                     print(f"   Deployment URL: {deployment_url}")
+
+                    # Log successful deployment
+                    log_event("deployment.build_succeeded",
+                             attempt=attempts,
+                             deployment_url=deployment_url,
+                             attempt_duration_ms=attempt_duration_ms,
+                             total_duration_ms=total_duration_ms,
+                             total_errors_encountered=len(all_build_errors))
+
+                    log_metric("deployment.successful_builds", 1)
+                    log_metric("deployment.attempts_until_success", attempts)
+                    log_metric("deployment.total_duration_ms", total_duration_ms)
+
+                    # Log final deployment success
+                    log_event("deployment.pipeline_succeeded",
+                             deployment_url=deployment_url,
+                             total_attempts=attempts,
+                             total_duration_ms=total_duration_ms,
+                             had_retries=attempts > 1,
+                             total_errors_fixed=len(all_build_errors))
 
                     # Clean up DevOps agent after success
                     await self._cleanup_agent("devops")
@@ -1958,14 +2201,38 @@ If successful, return the live deployment URL.""",
 
                 # Build failed - extract error details
                 if build_errors or not build_successful:
+                    attempt_duration_ms = (time.time() - attempt_start_time) * 1000
                     error_summary = self._format_build_errors(build_errors)
+
                     print(f"❌ Build failed on attempt {attempts}")
                     print(f"   Errors: {error_summary[:200]}...")
                     all_build_errors.extend(build_errors)
 
+                    # Log build failure
+                    log_event("deployment.build_failed",
+                             attempt=attempts,
+                             attempt_duration_ms=attempt_duration_ms,
+                             errors_count=len(build_errors),
+                             error_summary=error_summary[:500],
+                             will_retry=attempts < self.max_build_retries)
+
+                    log_metric("deployment.failed_builds", 1)
+                    log_metric("deployment.build_errors_count", len(build_errors))
+
                     # If this is the last attempt, give up
                     if attempts >= self.max_build_retries:
+                        total_duration_ms = (time.time() - deployment_start_time) * 1000
+
                         print(f"⚠️  Max retries ({self.max_build_retries}) reached - deployment failed")
+
+                        # Log final deployment failure
+                        log_event("deployment.pipeline_failed",
+                                 total_attempts=attempts,
+                                 total_duration_ms=total_duration_ms,
+                                 total_errors_count=len(all_build_errors),
+                                 max_retries_reached=True)
+
+                        log_metric("deployment.pipeline_failures", 1)
 
                         # Clean up DevOps agent
                         await self._cleanup_agent("devops")
@@ -1979,6 +2246,12 @@ If successful, return the live deployment URL.""",
 
                     # Ask Frontend to fix the build errors (via A2A)
                     print(f"\n🔧 Asking Frontend agent to fix build errors (A2A)...")
+
+                    # Log error fix request
+                    log_event("deployment.requesting_error_fix",
+                             attempt=attempts,
+                             errors_count=len(build_errors),
+                             requesting_from="frontend_agent")
 
                     # Format error details for Frontend
                     error_description = self._format_errors_for_frontend(build_errors, error_summary)
@@ -2028,6 +2301,13 @@ Do NOT guess - use Logfire data to see what actually went wrong!""",
                     )
 
                     current_implementation = fix_result.get('implementation', current_implementation)
+
+                    # Log successful error fix
+                    log_event("deployment.errors_fixed",
+                             attempt=attempts,
+                             errors_fixed_count=len(build_errors),
+                             implementation_updated=True)
+
                     print(f"✓ Frontend provided updated implementation via A2A")
                 else:
                     # No clear success or failure - treat as error
@@ -2044,10 +2324,38 @@ Do NOT guess - use Logfire data to see what actually went wrong!""",
                         }
 
             except Exception as e:
+                attempt_duration_ms = (time.time() - attempt_start_time) * 1000
+
                 print(f"❌ DevOps agent error on attempt {attempts}: {str(e)}")
                 all_build_errors.append(f"DevOps agent error: {str(e)}")
 
+                # Log deployment exception
+                log_error(e, "deployment_attempt",
+                         attempt=attempts,
+                         attempt_duration_ms=attempt_duration_ms,
+                         will_retry=attempts < self.max_build_retries)
+
+                log_event("deployment.attempt_exception",
+                         attempt=attempts,
+                         attempt_duration_ms=attempt_duration_ms,
+                         error=str(e),
+                         error_type=type(e).__name__)
+
+                log_metric("deployment.exceptions", 1)
+
                 if attempts >= self.max_build_retries:
+                    total_duration_ms = (time.time() - deployment_start_time) * 1000
+
+                    # Log pipeline failure due to exceptions
+                    log_event("deployment.pipeline_failed",
+                             total_attempts=attempts,
+                             total_duration_ms=total_duration_ms,
+                             total_errors_count=len(all_build_errors),
+                             failure_reason="exception",
+                             max_retries_reached=True)
+
+                    log_metric("deployment.pipeline_failures", 1)
+
                     await self._cleanup_agent("devops")
                     return {
                         'url': 'https://app.netlify.com/teams',

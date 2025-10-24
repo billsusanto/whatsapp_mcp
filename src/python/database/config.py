@@ -65,9 +65,10 @@ def get_engine() -> AsyncEngine:
     """
     Get or create the database engine
 
-    Uses connection pooling for optimal performance:
-    - Pool size: 5-20 connections
-    - Pool recycle: 3600 seconds (1 hour) - Neon compatible
+    Uses optimized connection pooling for high performance:
+    - Pool size: 20 connections (configurable via DB_POOL_SIZE)
+    - Max overflow: 10 (configurable via DB_MAX_OVERFLOW)
+    - Pool recycle: 3600 seconds (configurable via DB_POOL_RECYCLE)
     - Echo: Disabled in production (set SQLALCHEMY_ECHO=1 to enable)
 
     Returns:
@@ -79,16 +80,23 @@ def get_engine() -> AsyncEngine:
         database_url = get_database_url()
         echo = os.getenv('SQLALCHEMY_ECHO', '0') == '1'
 
+        # Get optimized pool settings from environment
+        pool_size = int(os.getenv('DB_POOL_SIZE', '20'))
+        max_overflow = int(os.getenv('DB_MAX_OVERFLOW', '10'))
+        pool_recycle = int(os.getenv('DB_POOL_RECYCLE', '3600'))
+
         _engine = create_async_engine(
             database_url,
             echo=echo,
-            pool_size=5,
-            max_overflow=10,
-            pool_recycle=3600,  # Recycle connections after 1 hour (Neon compatible)
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_recycle=pool_recycle,
             pool_pre_ping=True,  # Verify connections before using
+            pool_timeout=30,  # 30 second timeout for getting connection
         )
 
         print(f"✅ Database engine created (Neon PostgreSQL)")
+        print(f"   Pool: {pool_size} + {max_overflow} overflow, recycle: {pool_recycle}s")
 
     return _engine
 

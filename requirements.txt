@@ -77,3 +77,13 @@ typing-extensions>=4.14.1
 # Logfire - Pydantic's observability platform
 # Includes instrumentation for FastAPI and HTTPX
 logfire[fastapi,httpx]>=0.40.0
+
+# ============================================
+# Security & Performance Enhancements
+# ============================================
+
+# Rate limiting for FastAPI
+slowapi>=0.1.9
+
+# Async Redis for caching (already present above)
+# redis>=5.0.0

@@ -6,6 +6,7 @@ Reviews code for quality, security, and best practices
 from typing import Dict, Any
 from .base_agent import BaseAgent
 from .models import AgentCard, AgentRole, Task
+from utils.telemetry import trace_operation, log_event, log_metric, log_error
 
 
 class CodeReviewerAgent(BaseAgent):
@@ -385,6 +386,13 @@ Create a systematic, thorough review plan."""
         """
         print(f"🔍 [CODE REVIEWER] Reviewing with research & plan")
 
+        # Log code review task start
+        log_event("code_reviewer.task_start",
+                 task_id=task.task_id,
+                 has_research=True,
+                 has_plan=True,
+                 task_description_length=len(task.description))
+
         # Extract implementation from task metadata
         implementation = {}
         if task.metadata and isinstance(task.metadata, dict):
@@ -484,8 +492,19 @@ Conduct a comprehensive code review following the plan's checklist.
 Be thorough, critical, and specific. Use research findings to inform your review."""
 
         try:
-            # Get code review from Claude
-            response = await self.claude_sdk.send_message(review_prompt)
+            # Trace Claude API call for code review
+            with trace_operation("code_reviewer_review_with_plan",
+                               task_id=task.task_id,
+                               has_research=True,
+                               has_plan=True,
+                               prompt_length=len(review_prompt)) as span:
+
+                # Get code review from Claude
+                response = await self.claude_sdk.send_message(review_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("code_reviewer.llm_response_length", len(response))
 
             # Parse review
             import json
@@ -504,9 +523,24 @@ Be thorough, critical, and specific. Use research findings to inform your review
                     "note": "Review with research & planning"
                 }
 
+            # Track review metrics
             critical_count = len(review.get('critical_issues', []))
             major_count = len(review.get('major_issues', []))
             minor_count = len(review.get('minor_issues', []))
+            overall_score = review.get('overall_score', 0)
+            approved = review.get('approved', False)
+
+            log_event("code_reviewer.review_completed",
+                     task_id=task.task_id,
+                     overall_score=overall_score,
+                     approved=approved,
+                     critical_issues=critical_count,
+                     major_issues=major_count,
+                     minor_issues=minor_count,
+                     research_backed=True)
+
+            log_metric("code_reviewer.overall_score", overall_score)
+            log_metric("code_reviewer.critical_issues", critical_count)
 
             print(f"✅ [CODE REVIEWER] Research-backed review completed - Score: {review.get('overall_score', 'N/A')}/10")
             print(f"   Issues: {critical_count} critical, {major_count} major, {minor_count} minor")
@@ -524,6 +558,12 @@ Be thorough, critical, and specific. Use research findings to inform your review
             print(f"❌ [CODE REVIEWER] Error during review: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "code_reviewer_review_with_plan",
+                     task_id=task.task_id,
+                     has_research=True,
+                     has_plan=True)
 
             return {
                 "status": "completed_with_fallback",
@@ -543,6 +583,14 @@ Be thorough, critical, and specific. Use research findings to inform your review
         Used when enable_research_planning=False
         """
         print(f"🔍 [CODE REVIEWER] Reviewing code: {task.description} (direct execution)")
+
+        # Log code review task start (direct mode)
+        log_event("code_reviewer.task_start",
+                 task_id=task.task_id,
+                 has_research=False,
+                 has_plan=False,
+                 execution_mode="direct",
+                 task_description_length=len(task.description))
 
         # Extract implementation from task metadata
         implementation = {}
@@ -621,8 +669,19 @@ Conduct a comprehensive code review covering:
 Be specific with issues and provide actionable fixes. Prioritize security and correctness."""
 
         try:
-            # Get code review from Claude
-            response = await self.claude_sdk.send_message(review_prompt)
+            # Trace Claude API call for code review (direct mode)
+            with trace_operation("code_reviewer_review_direct",
+                               task_id=task.task_id,
+                               has_research=False,
+                               has_plan=False,
+                               prompt_length=len(review_prompt)) as span:
+
+                # Get code review from Claude
+                response = await self.claude_sdk.send_message(review_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("code_reviewer.llm_response_length", len(response))
 
             # Extract JSON from response
             import json
@@ -648,9 +707,25 @@ Be specific with issues and provide actionable fixes. Prioritize security and co
                     "summary": "Review completed - see suggestions for details"
                 }
 
+            # Track review metrics
             critical_count = len(review.get('critical_issues', []))
             major_count = len(review.get('major_issues', []))
             minor_count = len(review.get('minor_issues', []))
+            overall_score = review.get('overall_score', 0)
+            approved = review.get('approved', False)
+
+            log_event("code_reviewer.review_completed",
+                     task_id=task.task_id,
+                     overall_score=overall_score,
+                     approved=approved,
+                     critical_issues=critical_count,
+                     major_issues=major_count,
+                     minor_issues=minor_count,
+                     research_backed=False,
+                     execution_mode="direct")
+
+            log_metric("code_reviewer.overall_score", overall_score)
+            log_metric("code_reviewer.critical_issues", critical_count)
 
             print(f"✅ [CODE REVIEWER] Review completed - Score: {review.get('overall_score', 'N/A')}/10")
             print(f"   Issues: {critical_count} critical, {major_count} major, {minor_count} minor")
@@ -665,6 +740,13 @@ Be specific with issues and provide actionable fixes. Prioritize security and co
             print(f"❌ [CODE REVIEWER] Error during review: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "code_reviewer_review_direct",
+                     task_id=task.task_id,
+                     has_research=False,
+                     has_plan=False,
+                     execution_mode="direct")
 
             # Fallback to basic approval
             return {

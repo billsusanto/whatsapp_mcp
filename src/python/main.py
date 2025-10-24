@@ -47,7 +47,42 @@ from utils.telemetry import (
 # Initialize telemetry (auto-configures if LOGFIRE_TOKEN is set)
 initialize_logfire()
 
+# Security and performance imports
+from utils.security import (
+    SecretManager,
+    InputValidator,
+    SecurityHeaders,
+    validate_and_sanitize_input
+)
+from utils.performance import cache_manager, get_performance_config, perf_monitor
+
+# System health monitoring
+from utils.health_monitor import system_health_monitor
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="WhatsApp MCP Service", version="1.0.0")
+
+# Add rate limiter to app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        for header, value in SecurityHeaders.get_security_headers().items():
+            response.headers[header] = value
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Instrument FastAPI for automatic tracing
 instrument_fastapi(app)
@@ -68,11 +103,23 @@ async def whatsapp_send_tool(args: dict[str, Any]) -> dict[str, Any]:
     try:
         to = args.get('to')
         text = args.get('text')
-        whatsapp_client.send_message(to, text)
+
+        # Validate phone number
+        is_valid, cleaned_phone = InputValidator.validate_phone_number(to)
+        if not is_valid:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": "Invalid phone number format"
+                }],
+                "isError": True
+            }
+
+        whatsapp_client.send_message(cleaned_phone, text)
         return {
             "content": [{
                 "type": "text",
-                "text": f"Successfully sent message to {to}"
+                "text": f"Successfully sent message to {cleaned_phone}"
             }]
         }
     except Exception as e:
@@ -161,12 +208,27 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for Render"""
+    """
+    Comprehensive health check endpoint
+
+    Returns system health, workflow stats, agent stats, and configuration
+    """
+    # Get system health metrics
+    health_data = system_health_monitor.get_system_health()
+
+    # Get performance config
+    perf_config = get_performance_config()
+
+    # Mask API key for security
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+
     return {
-        "status": "healthy",
+        "status": health_data["status"],
         "service": "whatsapp-mcp",
+        "system_health": health_data,
         "platform": agent_manager.platform,
-        "api_key_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "api_key_configured": bool(anthropic_key),
+        "api_key_masked": SecretManager.mask_secret(anthropic_key) if anthropic_key else None,
         "whatsapp_configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN")),
         "github_mcp_enabled": "github" in mcp_config,
         "github_token_configured": bool(os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")),
@@ -174,7 +236,23 @@ async def health_check():
         "netlify_token_configured": bool(os.getenv("NETLIFY_PERSONAL_ACCESS_TOKEN")),
         "multi_agent_enabled": agent_manager.multi_agent_enabled,
         "active_agents": agent_manager.get_active_agents_count(),
-        "available_mcp_servers": list(mcp_config.keys())
+        "available_mcp_servers": list(mcp_config.keys()),
+        "performance": {
+            "cache_enabled": cache_manager.enabled,
+            "agent_caching": perf_config['enable_agent_caching'],
+            "db_pool_size": perf_config['db_pool_size']
+        }
+    }
+
+
+@app.get("/metrics/performance")
+async def get_performance_metrics():
+    """Get performance statistics"""
+    stats = await perf_monitor.get_all_stats()
+    return {
+        "status": "ok",
+        "metrics": stats,
+        "cache_enabled": cache_manager.enabled
     }
 
 
@@ -196,6 +274,7 @@ async def webhook_verify(request: Request):
 
 
 @app.post("/webhook")
+@limiter.limit("20/minute")  # Rate limit: 20 messages per minute per IP
 async def webhook_receive(request: Request):
     """WhatsApp webhook endpoint (POST) - Receives incoming messages"""
     try:
@@ -228,7 +307,34 @@ async def webhook_receive(request: Request):
             print(f"Ignoring non-text message type: {message_type}")
             return {"status": "ok"}
 
-        print(f"Processing message from {from_number}: {message_text}")
+        # Validate and sanitize input
+        is_valid, sanitized_message, error = validate_and_sanitize_input(
+            message_text, from_number
+        )
+
+        if not is_valid:
+            log_error(
+                ValueError(error),
+                "input_validation",
+                user_id=from_number,
+                message_preview=message_text[:100] if message_text else ""
+            )
+
+            # Send error message to user
+            try:
+                whatsapp_client.send_message(
+                    from_number,
+                    "Sorry, your message contains invalid content. Please send a valid message."
+                )
+            except Exception as send_error:
+                print(f"Failed to send validation error: {send_error}")
+
+            return {"status": "rejected", "reason": error}
+
+        # Use sanitized message
+        message_text = sanitized_message
+
+        print(f"Processing message from {from_number}: {message_text[:50]}...")
 
         # Process message with Agent Manager (async, don't wait)
         asyncio.create_task(process_whatsapp_message(from_number, message_text))
@@ -370,12 +476,30 @@ async def startup_event():
     print("=" * 60)
     print("🚀 WhatsApp MCP Service Starting...")
     print("=" * 60)
+
+    # CRITICAL: Validate all required secrets first
+    is_valid, missing_secrets = SecretManager.validate_secrets()
+    if not is_valid:
+        error_msg = f"❌ Missing required secrets: {', '.join(missing_secrets)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
+
+    print("✅ All required secrets validated")
+
+    # Initialize performance cache
+    await cache_manager.initialize()
+
+    # Get performance config
+    perf_config = get_performance_config()
+
     print(f"Platform: {agent_manager.platform}")
-    print(f"ANTHROPIC_API_KEY configured: {bool(os.getenv('ANTHROPIC_API_KEY'))}")
-    print(f"WHATSAPP_ACCESS_TOKEN configured: {bool(os.getenv('WHATSAPP_ACCESS_TOKEN'))}")
-    print(f"GITHUB_PERSONAL_ACCESS_TOKEN configured: {bool(os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'))}")
+    print(f"ANTHROPIC_API_KEY: {SecretManager.mask_secret(os.getenv('ANTHROPIC_API_KEY', ''))}")
+    print(f"WHATSAPP_ACCESS_TOKEN: {SecretManager.mask_secret(os.getenv('WHATSAPP_ACCESS_TOKEN', ''))}")
     print(f"Multi-agent enabled: {agent_manager.multi_agent_enabled}")
-    print(f"\nAvailable MCP servers: {list(mcp_config.keys())}")
+    print(f"Available MCP servers: {list(mcp_config.keys())}")
+    print(f"Cache enabled: {cache_manager.enabled}")
+    print(f"Agent caching: {perf_config['enable_agent_caching']}")
+    print(f"DB pool size: {perf_config['db_pool_size']}")
     print("=" * 60)
 
     # Start background task for periodic cleanup
@@ -387,6 +511,7 @@ async def shutdown_event():
     """Clean up all agents on shutdown"""
     print("Shutting down WhatsApp MCP Service...")
     await agent_manager.cleanup_all_agents()
+    await cache_manager.close()  # Close Redis connection
     print("Shutdown complete")
 
 

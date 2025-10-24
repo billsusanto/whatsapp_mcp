@@ -6,6 +6,7 @@ Handles deployment, infrastructure, and build optimization
 from typing import Dict, Any
 from .base_agent import BaseAgent
 from .models import AgentCard, AgentRole, Task
+from utils.telemetry import trace_operation, log_event, log_metric, log_error
 
 
 class DevOpsEngineerAgent(BaseAgent):
@@ -607,6 +608,13 @@ Create a comprehensive, foolproof deployment plan."""
         """
         print(f"🚀 [DEVOPS] Deploying with research & plan")
 
+        # Log deployment task start
+        log_event("devops.task_start",
+                 task_id=task.task_id,
+                 has_research=True,
+                 has_plan=True,
+                 task_description_length=len(task.description))
+
         # Extract implementation from task metadata
         implementation = {}
         if task.metadata and isinstance(task.metadata, dict):
@@ -615,6 +623,12 @@ Create a comprehensive, foolproof deployment plan."""
         # Get platform and configuration from research
         platform = research.get('platform_recommendation', {}).get('platform', 'netlify')
         build_config = research.get('build_configuration', {})
+
+        # Log deployment configuration
+        log_event("devops.deployment_config",
+                 task_id=task.task_id,
+                 platform=platform,
+                 has_build_config=bool(build_config))
 
         # Create deployment prompt informed by research and plan
         deployment_prompt = f"""You are an expert DevOps Engineer executing a deployment.
@@ -711,8 +725,20 @@ Execute the deployment following the plan step-by-step.
 Execute the deployment precisely as planned."""
 
         try:
-            # Get deployment result from Claude
-            response = await self.claude_sdk.send_message(deployment_prompt)
+            # Trace Claude API call for deployment planning
+            with trace_operation("devops_deploy_with_plan",
+                               task_id=task.task_id,
+                               platform=platform,
+                               has_research=True,
+                               has_plan=True,
+                               prompt_length=len(deployment_prompt)) as span:
+
+                # Get deployment result from Claude
+                response = await self.claude_sdk.send_message(deployment_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("devops.llm_response_length", len(response))
 
             # Parse deployment report
             import json
@@ -728,6 +754,20 @@ Execute the deployment precisely as planned."""
                     "deployment_summary": response,
                     "note": "Deployment with research & planning"
                 }
+
+            # Track deployment metrics
+            deployment_url = devops_report.get('deployment_url', '')
+            deployment_success = bool(deployment_url)
+
+            log_event("devops.deployment_completed",
+                     task_id=task.task_id,
+                     platform=platform,
+                     deployment_success=deployment_success,
+                     has_deployment_url=bool(deployment_url),
+                     research_backed=True)
+
+            if deployment_url:
+                log_metric("devops.successful_deployments", 1)
 
             print(f"✅ [DEVOPS] Research-backed deployment plan created")
 
@@ -745,6 +785,13 @@ Execute the deployment precisely as planned."""
             import traceback
             traceback.print_exc()
 
+            # Log error with context
+            log_error(e, "devops_deploy_with_plan",
+                     task_id=task.task_id,
+                     platform=platform,
+                     has_research=True,
+                     has_plan=True)
+
             return {
                 "status": "completed_with_fallback",
                 "devops_report": {
@@ -761,6 +808,14 @@ Execute the deployment precisely as planned."""
         Used when enable_research_planning=False
         """
         print(f"🚀 [DEVOPS] Processing deployment: {task.description} (direct execution)")
+
+        # Log deployment task start (direct mode)
+        log_event("devops.task_start",
+                 task_id=task.task_id,
+                 has_research=False,
+                 has_plan=False,
+                 execution_mode="direct",
+                 task_description_length=len(task.description))
 
         # Extract implementation from task metadata
         implementation = {}
@@ -1190,8 +1245,19 @@ You are the guardian of deployment quality AND build error resolution.
 - Don't just deploy and hope - VERIFY, ANALYZE, FIX!"""
 
         try:
-            # Get DevOps assessment from Claude
-            response = await self.claude_sdk.send_message(devops_prompt)
+            # Trace Claude API call for deployment (direct mode)
+            with trace_operation("devops_deploy_direct",
+                               task_id=task.task_id,
+                               has_research=False,
+                               has_plan=False,
+                               prompt_length=len(devops_prompt)) as span:
+
+                # Get DevOps assessment from Claude
+                response = await self.claude_sdk.send_message(devops_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("devops.llm_response_length", len(response))
 
             # Extract JSON from response
             import json
@@ -1221,8 +1287,28 @@ You are the guardian of deployment quality AND build error resolution.
                     "summary": "DevOps assessment completed - see recommendations"
                 }
 
+            # Track deployment metrics
             issues_count = len(devops_report.get('issues', []))
             optimization_count = len(devops_report.get('optimizations', []))
+            deployment_score = devops_report.get('deployment_score', 0)
+            deployment_ready = devops_report.get('deployment_ready', False)
+            deployment_url = devops_report.get('deployment_url', '')
+
+            log_event("devops.deployment_completed",
+                     task_id=task.task_id,
+                     deployment_score=deployment_score,
+                     deployment_ready=deployment_ready,
+                     issues_count=issues_count,
+                     optimization_count=optimization_count,
+                     has_deployment_url=bool(deployment_url),
+                     research_backed=False,
+                     execution_mode="direct")
+
+            log_metric("devops.deployment_score", deployment_score)
+            log_metric("devops.deployment_issues", issues_count)
+
+            if deployment_url:
+                log_metric("devops.successful_deployments", 1)
 
             print(f"✅ [DEVOPS] Assessment completed - Deployment Score: {devops_report.get('deployment_score', 'N/A')}/10")
             print(f"   Optimizations: {optimization_count}, Issues: {issues_count}")
@@ -1237,6 +1323,13 @@ You are the guardian of deployment quality AND build error resolution.
             print(f"❌ [DEVOPS] Error during assessment: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "devops_deploy_direct",
+                     task_id=task.task_id,
+                     has_research=False,
+                     has_plan=False,
+                     execution_mode="direct")
 
             # Fallback to basic config
             return {

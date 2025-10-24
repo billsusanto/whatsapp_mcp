@@ -6,6 +6,7 @@ Tests webapps for functionality, usability, and quality
 from typing import Dict, Any
 from .base_agent import BaseAgent
 from .models import AgentCard, AgentRole, Task
+from utils.telemetry import trace_operation, log_event, log_metric, log_error
 
 
 class QAEngineerAgent(BaseAgent):
@@ -425,6 +426,13 @@ Create a comprehensive, executable test plan."""
         """
         print(f"🧪 [QA ENGINEER] Testing with research & plan")
 
+        # Log QA task start
+        log_event("qa.task_start",
+                 task_id=task.task_id,
+                 has_research=True,
+                 has_plan=True,
+                 task_description_length=len(task.description))
+
         # Extract implementation from task metadata
         implementation = {}
         requirements = task.description
@@ -526,8 +534,19 @@ Execute all tests from the plan and identify issues.
 Be thorough and systematic. Execute all tests from the plan."""
 
         try:
-            # Get QA report from Claude
-            response = await self.claude_sdk.send_message(testing_prompt)
+            # Trace Claude API call for QA testing
+            with trace_operation("qa_test_with_plan",
+                               task_id=task.task_id,
+                               has_research=True,
+                               has_plan=True,
+                               prompt_length=len(testing_prompt)) as span:
+
+                # Get QA report from Claude
+                response = await self.claude_sdk.send_message(testing_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("qa.llm_response_length", len(response))
 
             # Parse QA report
             import json
@@ -546,8 +565,22 @@ Be thorough and systematic. Execute all tests from the plan."""
                     "note": "Testing with research & planning"
                 }
 
+            # Track QA metrics
             issues_count = len(qa_report.get('issues_found', []))
             test_count = len(qa_report.get('test_results', []))
+            quality_score = qa_report.get('overall_quality_score', 0)
+            passed = qa_report.get('passed', False)
+
+            log_event("qa.testing_completed",
+                     task_id=task.task_id,
+                     quality_score=quality_score,
+                     passed=passed,
+                     issues_count=issues_count,
+                     test_count=test_count,
+                     research_backed=True)
+
+            log_metric("qa.quality_score", quality_score)
+            log_metric("qa.issues_found", issues_count)
 
             print(f"✅ [QA ENGINEER] Research-backed testing completed - Score: {qa_report.get('overall_quality_score', 'N/A')}/10")
             print(f"   Tests: {test_count}, Issues: {issues_count}")
@@ -565,6 +598,12 @@ Be thorough and systematic. Execute all tests from the plan."""
             print(f"❌ [QA ENGINEER] Error during testing: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "qa_test_with_plan",
+                     task_id=task.task_id,
+                     has_research=True,
+                     has_plan=True)
 
             return {
                 "status": "completed_with_fallback",
@@ -584,6 +623,14 @@ Be thorough and systematic. Execute all tests from the plan."""
         Used when enable_research_planning=False
         """
         print(f"🧪 [QA ENGINEER] Testing webapp: {task.description} (direct execution)")
+
+        # Log QA task start (direct mode)
+        log_event("qa.task_start",
+                 task_id=task.task_id,
+                 has_research=False,
+                 has_plan=False,
+                 execution_mode="direct",
+                 task_description_length=len(task.description))
 
         # Extract implementation and requirements from task metadata
         implementation = {}
@@ -677,8 +724,19 @@ Conduct comprehensive QA testing covering:
 Be thorough and specific. Identify real issues users would encounter."""
 
         try:
-            # Get QA assessment from Claude
-            response = await self.claude_sdk.send_message(testing_prompt)
+            # Trace Claude API call for QA testing (direct mode)
+            with trace_operation("qa_test_direct",
+                               task_id=task.task_id,
+                               has_research=False,
+                               has_plan=False,
+                               prompt_length=len(testing_prompt)) as span:
+
+                # Get QA assessment from Claude
+                response = await self.claude_sdk.send_message(testing_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("qa.llm_response_length", len(response))
 
             # Extract JSON from response
             import json
@@ -704,8 +762,23 @@ Be thorough and specific. Identify real issues users would encounter."""
                     "summary": "QA testing completed - see recommendations for details"
                 }
 
+            # Track QA metrics
             issues_count = len(qa_report.get('issues_found', []))
             test_count = len(qa_report.get('test_plan', []))
+            quality_score = qa_report.get('overall_quality_score', 0)
+            passed = qa_report.get('passed', False)
+
+            log_event("qa.testing_completed",
+                     task_id=task.task_id,
+                     quality_score=quality_score,
+                     passed=passed,
+                     issues_count=issues_count,
+                     test_count=test_count,
+                     research_backed=False,
+                     execution_mode="direct")
+
+            log_metric("qa.quality_score", quality_score)
+            log_metric("qa.issues_found", issues_count)
 
             print(f"✅ [QA ENGINEER] Testing completed - Quality Score: {qa_report.get('overall_quality_score', 'N/A')}/10")
             print(f"   Test plan: {test_count} tests, Issues found: {issues_count}")
@@ -720,6 +793,13 @@ Be thorough and specific. Identify real issues users would encounter."""
             print(f"❌ [QA ENGINEER] Error during testing: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "qa_test_direct",
+                     task_id=task.task_id,
+                     has_research=False,
+                     has_plan=False,
+                     execution_mode="direct")
 
             # Fallback to basic approval
             return {

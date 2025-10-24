@@ -6,6 +6,7 @@ Implements webapps based on design specifications
 from typing import Dict, Any
 from .base_agent import BaseAgent
 from .models import AgentCard, AgentRole, Task
+from utils.telemetry import trace_operation, log_event, log_metric, log_error
 
 
 class FrontendDeveloperAgent(BaseAgent):
@@ -441,6 +442,15 @@ Create a clear, step-by-step implementation plan."""
         framework = research.get('framework_recommendation', {}).get('framework', 'react')
         tech_stack = research.get('technology_stack', {})
 
+        # Log implementation task start
+        log_event("frontend.task_start",
+                 task_id=task.task_id,
+                 has_research=True,
+                 has_plan=True,
+                 framework=framework,
+                 has_design_spec=bool(design_spec),
+                 task_description_length=len(task.description))
+
         # Create enhanced implementation prompt informed by research and plan
         implementation_prompt = f"""You are an expert Frontend Developer implementing a production-ready webapp.
 
@@ -542,8 +552,20 @@ Implement the complete, production-ready webapp following the research and plan.
 Implement now, following the plan precisely."""
 
         try:
-            # Get implementation from Claude with research & plan context
-            response = await self.claude_sdk.send_message(implementation_prompt)
+            # Trace Claude API call for implementation
+            with trace_operation("frontend_implement_with_plan",
+                               task_id=task.task_id,
+                               framework=framework,
+                               has_research=True,
+                               has_plan=True,
+                               prompt_length=len(implementation_prompt)) as span:
+
+                # Get implementation from Claude with research & plan context
+                response = await self.claude_sdk.send_message(implementation_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("frontend.llm_response_length", len(response))
 
             # Parse implementation
             import json
@@ -560,7 +582,20 @@ Implement now, following the plan precisely."""
                     "note": "Implementation created with research & planning"
                 }
 
+            # Track implementation metrics
             files_count = len(implementation.get('files', []))
+            implementation_framework = implementation.get('framework', framework)
+            has_typescript = any('typescript' in str(dep).lower() for dep in implementation.get('dependencies', {}).values())
+
+            log_event("frontend.implementation_created",
+                     task_id=task.task_id,
+                     files_count=files_count,
+                     framework=implementation_framework,
+                     has_typescript=has_typescript,
+                     research_backed=True)
+
+            log_metric("frontend.files_generated", files_count)
+
             print(f"✅ [FRONTEND] Research-backed implementation completed ({files_count} files)")
 
             return {
@@ -576,6 +611,13 @@ Implement now, following the plan precisely."""
             print(f"❌ [FRONTEND] Error during implementation: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "frontend_implement_with_plan",
+                     task_id=task.task_id,
+                     framework=framework,
+                     has_research=True,
+                     has_plan=True)
 
             # Fallback
             return {
@@ -594,6 +636,14 @@ Implement now, following the plan precisely."""
         Used when enable_research_planning=False
         """
         print(f"💻 [FRONTEND] Implementing: {task.description} (direct execution)")
+
+        # Log implementation task start (direct mode)
+        log_event("frontend.task_start",
+                 task_id=task.task_id,
+                 has_research=False,
+                 has_plan=False,
+                 execution_mode="direct",
+                 task_description_length=len(task.description))
 
         # Extract design spec from task metadata
         design_spec = {}
@@ -726,8 +776,19 @@ Create a complete, production-ready React webapp implementation that includes:
 Generate complete, production-ready, functional code that implements the design specification with pixel-perfect accuracy."""
 
         try:
-            # Get implementation from Claude
-            response = await self.claude_sdk.send_message(implementation_prompt)
+            # Trace Claude API call for implementation (direct mode)
+            with trace_operation("frontend_implement_direct",
+                               task_id=task.task_id,
+                               has_research=False,
+                               has_plan=False,
+                               prompt_length=len(implementation_prompt)) as span:
+
+                # Get implementation from Claude
+                response = await self.claude_sdk.send_message(implementation_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
+                log_metric("frontend.llm_response_length", len(response))
 
             # Try to extract JSON from response
             import json
@@ -752,6 +813,21 @@ Generate complete, production-ready, functional code that implements the design 
                     "note": "Code generated by Claude AI - see content for implementation"
                 }
 
+            # Track implementation metrics
+            files_count = len(implementation.get('files', []))
+            framework = implementation.get('framework', 'react')
+            has_typescript = any('typescript' in str(dep).lower() for dep in implementation.get('dependencies', {}).values()) if isinstance(implementation.get('dependencies'), dict) else False
+
+            log_event("frontend.implementation_created",
+                     task_id=task.task_id,
+                     files_count=files_count,
+                     framework=framework,
+                     has_typescript=has_typescript,
+                     research_backed=False,
+                     execution_mode="direct")
+
+            log_metric("frontend.files_generated", files_count)
+
             print(f"✅ [FRONTEND] Implementation completed - {len(implementation.get('files', []))} files generated")
 
             return {
@@ -764,6 +840,13 @@ Generate complete, production-ready, functional code that implements the design 
             print(f"❌ [FRONTEND] Error during implementation: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "frontend_implement_direct",
+                     task_id=task.task_id,
+                     has_research=False,
+                     has_plan=False,
+                     execution_mode="direct")
 
             # Fallback implementation
             return {
@@ -787,6 +870,10 @@ Generate complete, production-ready, functional code that implements the design 
         Phase 3: Real design review with Claude
         """
         print(f"🔍 [FRONTEND] Reviewing design specification")
+
+        # Log review start
+        log_event("frontend.review_start",
+                 artifact_type="design_specification")
 
         review_prompt = f"""You are an expert Frontend Developer reviewing a design specification for implementability.
 
@@ -828,8 +915,16 @@ Output as JSON with:
 Be specific and constructive."""
 
         try:
-            # Get review from Claude
-            response = await self.claude_sdk.send_message(review_prompt)
+            # Trace Claude API call for design review
+            with trace_operation("frontend_review_design",
+                               artifact_type="design_specification",
+                               prompt_length=len(review_prompt)) as span:
+
+                # Get review from Claude
+                response = await self.claude_sdk.send_message(review_prompt)
+
+                # Track response metrics
+                span.set_attribute("response_length", len(response))
 
             # Try to extract JSON from response
             import json
@@ -852,6 +947,20 @@ Be specific and constructive."""
                     "note": "Review completed - see recommendations for details"
                 }
 
+            # Track review metrics
+            implementable = review.get("implementable", True)
+            confidence = review.get("confidence", 0)
+            concerns_count = len(review.get("concerns", []))
+            questions_count = len(review.get("questions", []))
+
+            log_event("frontend.design_review_completed",
+                     implementable=implementable,
+                     confidence=confidence,
+                     concerns_count=concerns_count,
+                     questions_count=questions_count)
+
+            log_metric("frontend.design_review_confidence", confidence)
+
             print(f"✅ [FRONTEND] Design review completed - Implementable: {review.get('implementable', True)}")
 
             return review
@@ -860,6 +969,10 @@ Be specific and constructive."""
             print(f"❌ [FRONTEND] Error during review: {e}")
             import traceback
             traceback.print_exc()
+
+            # Log error with context
+            log_error(e, "frontend_review_design",
+                     artifact_type="design_specification")
 
             # Fallback to basic approval
             return {
