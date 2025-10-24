@@ -235,6 +235,10 @@ async def process_droid_command(command: str, context: Dict[str, Any]):
         # Process the command
         response = await manager.process_message(session_key, command, context)
 
+        # Send response back to GitHub
+        if response:
+            await github_adapter.send_message(session_key, response)
+
         logger.info(f"Command processing completed for {session_key}")
 
     except Exception as e:
