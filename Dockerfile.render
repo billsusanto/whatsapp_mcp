@@ -84,7 +84,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
 RUN python -c "import fastapi; print('✓ FastAPI installed')" && \
     python -c "import anthropic; print('✓ Anthropic SDK installed')" && \
     python -c "import redis; print('✓ Redis installed')" && \
-    python -c "try:\n    import logfire\n    print('✓ Logfire installed')\nexcept ImportError:\n    print('⚠️ Logfire not installed - telemetry will be disabled')" || true
+    python -c "try:\n    import logfire\n    print('✓ Logfire installed')\n    try:\n        import opentelemetry.instrumentation.fastapi\n        import opentelemetry.instrumentation.httpx\n        print('✓ Logfire instrumentation packages installed')\n    except ImportError:\n        print('⚠️ Logfire instrumentation incomplete')\nexcept ImportError:\n    print('⚠️ Logfire not installed - telemetry will be disabled')" || true
 
 # Create non-root user
 RUN useradd -m -u 1001 agentuser

@@ -154,7 +154,7 @@ class CollaborativeOrchestrator:
         self._agent_cache: Dict[str, any] = {}  # Cached agent instances (optional reuse)
 
         # Create Claude SDK for orchestrator tasks (deployment, coordination, planning)
-        self.deployment_sdk = ClaudeSDK(available_mcp_servers=mcp_servers)
+        self.deployment_sdk = ClaudeSDK(available_mcp_servers=self.mcp_servers)
 
         # Create planning SDK for intelligent workflow decisions
         self.planner_sdk = ClaudeSDK(available_mcp_servers={})  # No MCP tools needed for planning
@@ -189,7 +189,7 @@ class CollaborativeOrchestrator:
         print(f"   - Agents will be cleaned up after task completion")
         print(f"   - Agent caching: {'Enabled' if self.enable_agent_caching else 'Disabled (saves memory)'}")
         print(f"   - AI Planner (Claude-powered workflow decisions)")
-        print(f"   - Deployment SDK with {len(mcp_servers)} MCP servers")
+        print(f"   - Deployment SDK with {len(self.mcp_servers)} MCP servers")
         print(f"   - State persistence: PostgreSQL/Neon (lazy initialization)")
         print(f"\n🔗 A2A Protocol: Agents register/unregister dynamically")
         print("=" * 60 + "\n")

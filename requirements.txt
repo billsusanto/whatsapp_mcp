@@ -75,4 +75,5 @@ typing-extensions>=4.14.1
 # ============================================
 
 # Logfire - Pydantic's observability platform
-logfire>=0.40.0
+# Includes instrumentation for FastAPI and HTTPX
+logfire[fastapi,httpx]>=0.40.0
