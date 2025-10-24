@@ -18,6 +18,7 @@ from .qa_agent import QAEngineerAgent
 from .devops_agent import DevOpsEngineerAgent
 from .models import Task, TaskResponse
 from .a2a_protocol import a2a_protocol
+from .orchestrator_state import OrchestratorStateManager
 
 # Import telemetry
 from utils.telemetry import (
@@ -64,25 +65,49 @@ class CollaborativeOrchestrator:
     QA_ID = "qa_engineer_001"
     DEVOPS_ID = "devops_001"
 
-    def __init__(self, mcp_servers: Dict, user_phone_number: Optional[str] = None):
+    def __init__(
+        self,
+        user_id: str,
+        send_message_callback,
+        platform: str = "whatsapp",
+        github_context: Optional[Dict] = None,
+        available_mcp_servers: Optional[Dict] = None,
+        mcp_servers: Optional[Dict] = None,  # Backward compatibility
+        user_phone_number: Optional[str] = None  # Backward compatibility
+    ):
         """
         Initialize orchestrator with lazy agent initialization for resource efficiency
 
         Args:
-            mcp_servers: Available MCP servers (WhatsApp, GitHub, Netlify)
-            user_phone_number: User's WhatsApp number for notifications (optional)
+            user_id: Unique identifier (phone number for WhatsApp, repo#number for GitHub)
+            send_message_callback: Async callback function for sending notifications
+            platform: Platform type ("whatsapp" or "github")
+            github_context: GitHub-specific context (repo, PR/issue details)
+            available_mcp_servers: Available MCP servers (GitHub, Netlify, etc.)
+            mcp_servers: DEPRECATED - use available_mcp_servers
+            user_phone_number: DEPRECATED - use user_id
         """
         print("=" * 60)
         print("🎭 Initializing Multi-Agent Orchestrator with A2A Protocol")
         print("=" * 60)
 
-        self.mcp_servers = mcp_servers
-        self.orchestrator_id = self.ORCHESTRATOR_ID
-        self.user_phone_number = user_phone_number
+        # Handle backward compatibility
+        if mcp_servers and not available_mcp_servers:
+            available_mcp_servers = mcp_servers
+        if user_phone_number and not user_id:
+            user_id = user_phone_number
 
-        # Initialize WhatsApp client for notifications (if available)
+        self.mcp_servers = available_mcp_servers or {}
+        self.orchestrator_id = self.ORCHESTRATOR_ID
+        self.user_id = user_id
+        self.platform = platform
+        self.github_context = github_context
+        self.send_message_callback = send_message_callback
+
+        # Legacy WhatsApp support (for backward compatibility)
+        self.user_phone_number = user_phone_number
         self.whatsapp_client = None
-        if user_phone_number and "whatsapp" in mcp_servers:
+        if platform == "whatsapp" and user_phone_number:
             try:
                 import sys
                 import os
@@ -93,6 +118,13 @@ class CollaborativeOrchestrator:
             except Exception as e:
                 print(f"⚠️  WhatsApp notifications disabled: {e}")
                 self.whatsapp_client = None
+
+        print(f"📱 Platform: {platform}")
+        if platform == "github" and github_context:
+            repo = github_context.get("repository", {}).get("full_name", "unknown")
+            print(f"🔗 GitHub: {repo}")
+        elif platform == "whatsapp" and user_phone_number:
+            print(f"💬 WhatsApp: {user_phone_number}")
 
         # Register orchestrator with A2A protocol so it can send messages
         from .models import AgentCard, AgentRole
@@ -148,12 +180,17 @@ class CollaborativeOrchestrator:
         self.workflow_steps_completed = []  # List of completed steps
         self.workflow_steps_total = 0  # Total number of steps in workflow
 
+        # State persistence (lazy initialization - initialized on first use)
+        self.state_manager = None
+        self._state_manager_initialized = False
+
         print("\n✅ Multi-Agent Orchestrator Ready (Lazy Initialization):")
         print(f"   - Agents will be spun up on-demand when needed")
         print(f"   - Agents will be cleaned up after task completion")
         print(f"   - Agent caching: {'Enabled' if self.enable_agent_caching else 'Disabled (saves memory)'}")
         print(f"   - AI Planner (Claude-powered workflow decisions)")
         print(f"   - Deployment SDK with {len(mcp_servers)} MCP servers")
+        print(f"   - State persistence: PostgreSQL/Neon (lazy initialization)")
         print(f"\n🔗 A2A Protocol: Agents register/unregister dynamically")
         print("=" * 60 + "\n")
 
@@ -244,22 +281,55 @@ class CollaborativeOrchestrator:
             await self._cleanup_agent(agent_type)
 
     # ==========================================
-    # WHATSAPP NOTIFICATION HELPERS
+    # NOTIFICATION HELPERS (Platform-agnostic)
     # ==========================================
+
+    async def _send_notification(self, message: str):
+        """
+        Send notification to user via platform-specific callback.
+
+        For WhatsApp: Sends via WhatsApp client
+        For GitHub: Posts as a comment on the PR/Issue
+
+        Args:
+            message: Message to send (supports markdown for GitHub)
+        """
+        try:
+            # Use the callback if provided
+            if self.send_message_callback:
+                await self.send_message_callback(message)
+                print(f"📤 Notification sent ({self.platform}): {message[:50]}...")
+            # Fallback to legacy WhatsApp for backward compatibility
+            elif self.whatsapp_client and self.user_phone_number:
+                self.whatsapp_client.send_message(self.user_phone_number, message)
+                print(f"📱 WhatsApp notification sent: {message[:50]}...")
+        except Exception as e:
+            print(f"⚠️  Failed to send notification: {e}")
 
     def _send_whatsapp_notification(self, message: str):
         """
-        Send WhatsApp notification to user (non-blocking)
+        DEPRECATED: Legacy method for backward compatibility.
+        Use _send_notification instead.
 
         Args:
             message: Notification message to send
         """
-        if self.whatsapp_client and self.user_phone_number:
-            try:
-                self.whatsapp_client.send_message(self.user_phone_number, message)
-                print(f"📱 WhatsApp notification sent: {message[:50]}...")
-            except Exception as e:
-                print(f"⚠️  Failed to send WhatsApp notification: {e}")
+        import asyncio
+        # Try to run as async
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(self._send_notification(message))
+            else:
+                loop.run_until_complete(self._send_notification(message))
+        except:
+            # Fallback for synchronous contexts
+            if self.whatsapp_client and self.user_phone_number:
+                try:
+                    self.whatsapp_client.send_message(self.user_phone_number, message)
+                    print(f"📱 WhatsApp notification sent: {message[:50]}...")
+                except Exception as e:
+                    print(f"⚠️  Failed to send WhatsApp notification: {e}")
 
     def _get_agent_type_name(self, agent_id: str) -> str:
         """Map agent_id to human-readable type name"""
@@ -295,10 +365,11 @@ class CollaborativeOrchestrator:
             for agent_type, agent in self._active_agents.items()
         ] if self._active_agents else []
 
-        # Calculate progress
+        # Calculate progress (capped at 100%)
         progress_percent = 0
         if self.workflow_steps_total > 0:
-            progress_percent = int((len(self.workflow_steps_completed) / self.workflow_steps_total) * 100)
+            raw_percent = (len(self.workflow_steps_completed) / self.workflow_steps_total) * 100
+            progress_percent = min(100, int(raw_percent))
 
         return {
             "is_active": self.is_active,
@@ -340,6 +411,10 @@ class CollaborativeOrchestrator:
 
         # Add to accumulated refinements
         self.accumulated_refinements.append(refinement_message)
+
+        # Save state after refinement
+        await self._ensure_state_manager()
+        await self._save_state()
 
         # Send acknowledgment to user
         self._send_whatsapp_notification(
@@ -486,9 +561,16 @@ Please update the implementation to incorporate this change.""",
         # Progress tracking
         if self.workflow_steps_total > 0:
             completed_count = len(self.workflow_steps_completed)
-            progress_percent = int((completed_count / self.workflow_steps_total) * 100)
+            # Cap progress at 100% to prevent displaying >100% when steps exceed estimate
+            raw_percent = (completed_count / self.workflow_steps_total) * 100
+            progress_percent = min(100, int(raw_percent))
             progress_bar = self._create_progress_bar(progress_percent)
-            status_parts.append(f"   • Progress: {progress_bar} {progress_percent}% ({completed_count}/{self.workflow_steps_total} steps)")
+
+            # Show if we exceeded estimate (indicates more retries/iterations than expected)
+            if completed_count > self.workflow_steps_total:
+                status_parts.append(f"   • Progress: {progress_bar} {progress_percent}% ({completed_count}/{self.workflow_steps_total}+ steps)")
+            else:
+                status_parts.append(f"   • Progress: {progress_bar} {progress_percent}% ({completed_count}/{self.workflow_steps_total} steps)")
 
         # Active agent details
         status_parts.append(f"\n🤖 *Currently Active Agent:*")
@@ -576,7 +658,123 @@ Please update the implementation to incorporate this change.""",
         self.current_implementation = None
         self.current_design_spec = None
 
+        # Delete state from database
+        await self._delete_state()
+
         return "🛑 Task cancelled. The multi-agent team has stopped working on the previous request."
+
+    # ==========================================
+    # STATE PERSISTENCE (Neon PostgreSQL)
+    # ==========================================
+
+    async def _ensure_state_manager(self):
+        """
+        Ensure state manager is initialized (lazy initialization)
+
+        This is called automatically before any state operations
+        """
+        if not self._state_manager_initialized:
+            try:
+                self.state_manager = OrchestratorStateManager()
+                await self.state_manager.initialize()
+                self._state_manager_initialized = True
+
+                # Try to restore previous state
+                if self.user_id:
+                    await self._restore_state()
+
+            except Exception as e:
+                print(f"⚠️  State persistence disabled: {e}")
+                self.state_manager = None
+                self._state_manager_initialized = False
+
+    async def _save_state(self):
+        """
+        Save current orchestrator state to database
+
+        Automatically called after state changes to ensure persistence
+        """
+        if not self.state_manager or not self.user_id:
+            return
+
+        try:
+            state = {
+                'is_active': self.is_active,
+                'current_phase': self.current_phase,
+                'current_workflow': self.current_workflow,
+                'original_prompt': self.original_prompt,
+                'accumulated_refinements': self.accumulated_refinements,
+                'current_implementation': self.current_implementation,
+                'current_design_spec': self.current_design_spec,
+                'workflow_steps_completed': self.workflow_steps_completed,
+                'workflow_steps_total': self.workflow_steps_total,
+                'current_agent_working': self.current_agent_working,
+                'current_task_description': self.current_task_description
+            }
+
+            await self.state_manager.save_state(self.user_id, state)
+            print(f"💾 State saved to database (user: {self.user_id})")
+
+        except Exception as e:
+            print(f"⚠️  Failed to save state: {e}")
+
+    async def _restore_state(self):
+        """
+        Restore orchestrator state from database (if exists)
+
+        Called during initialization to recover from crashes
+        """
+        if not self.state_manager or not self.user_id:
+            return
+
+        try:
+            state = await self.state_manager.load_state(self.user_id)
+
+            if state and state.get('is_active'):
+                print(f"🔄 Restoring previous orchestrator state for {self.user_id}")
+
+                self.is_active = state.get('is_active', False)
+                self.current_phase = state.get('current_phase')
+                self.current_workflow = state.get('current_workflow')
+                self.original_prompt = state.get('original_prompt')
+                self.accumulated_refinements = state.get('accumulated_refinements', [])
+                self.current_implementation = state.get('current_implementation')
+                self.current_design_spec = state.get('current_design_spec')
+                self.workflow_steps_completed = state.get('workflow_steps_completed', [])
+                self.workflow_steps_total = state.get('workflow_steps_total', 0)
+                self.current_agent_working = state.get('current_agent_working')
+                self.current_task_description = state.get('current_task_description')
+
+                print(f"✅ State restored (Phase: {self.current_phase}, Workflow: {self.current_workflow})")
+
+                # Notify user
+                if self.current_phase and self.current_workflow:
+                    self._send_whatsapp_notification(
+                        f"🔄 Resumed previous task!\n\n"
+                        f"📋 Task: {self.original_prompt[:100]}...\n"
+                        f"⚙️  Phase: {self.current_phase}\n"
+                        f"📊 Progress: {len(self.workflow_steps_completed)}/{self.workflow_steps_total} steps\n\n"
+                        f"Continuing from where we left off..."
+                    )
+
+        except Exception as e:
+            print(f"⚠️  Failed to restore state: {e}")
+
+    async def _delete_state(self):
+        """
+        Delete orchestrator state from database
+
+        Called when a task completes or is cancelled
+        """
+        if not self.state_manager or not self.user_id:
+            return
+
+        try:
+            await self.state_manager.delete_state(self.user_id)
+            print(f"🗑️  State deleted from database (user: {self.user_id})")
+
+        except Exception as e:
+            print(f"⚠️  Failed to delete state: {e}")
 
     # ==========================================
     # A2A HELPER METHODS
@@ -675,6 +873,15 @@ Please update the implementation to incorporate this change.""",
             # Mark step as completed
             step_name = f"{agent_type_name}: {task_description[:60]}{'...' if len(task_description) > 60 else ''}"
             self.workflow_steps_completed.append(step_name)
+
+            # Dynamic step adjustment: If we're approaching the estimate, increase it
+            # This prevents showing >100% while still indicating progress
+            if len(self.workflow_steps_completed) >= self.workflow_steps_total:
+                # Increase estimate by 5 to accommodate more retries/iterations
+                self.workflow_steps_total += 5
+                print(f"   📊 Progress estimate adjusted: {self.workflow_steps_total} steps (more retries needed)")
+                # Save updated state
+                await self._save_state()
 
             # Add completion metadata to span
             if a2a_span:
@@ -981,6 +1188,10 @@ Respond with ONLY the JSON object, no other text."""
         self.workflow_steps_completed = []
         self.workflow_steps_total = 0  # Will be set based on workflow type
 
+        # Initialize state persistence and save initial state
+        await self._ensure_state_manager()
+        await self._save_state()
+
         # Send initial acknowledgment to user
         self._send_whatsapp_notification(
             f"🚀 Request received! Multi-agent team is processing...\n"
@@ -1048,8 +1259,9 @@ Please try again or provide more details."""
         print(f"\n🏗️  Starting FULL BUILD workflow (A2A Protocol)")
 
         # Set total steps for progress tracking
-        # Design (1) + Implementation (1) + Review iterations (variable, avg 2) + Deploy (1) + Format (1) = ~6 steps
-        self.workflow_steps_total = 6
+        # Design (1) + Implementation (1) + Review iterations (2-5) + Deploy retries (1-10) + Frontend fixes (0-5) + Format (1)
+        # Realistic estimate accounting for quality loops and deployment retries: ~15 steps average
+        self.workflow_steps_total = 15
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")
@@ -1057,6 +1269,7 @@ Please try again or provide more details."""
         try:
             # Step 1: Designer creates design specification (A2A - keep agent alive for reviews)
             self.current_phase = "design"
+            await self._save_state()
             print("\n[Step 1/5] 🎨 Designer creating design specification (A2A)...")
             design_result = await self._send_task_to_agent(
                 agent_id=self.DESIGNER_ID,
@@ -1077,6 +1290,7 @@ Please try again or provide more details."""
 
             # Step 2: Frontend implements design (A2A - keep agent alive for improvements)
             self.current_phase = "implementation"
+            await self._save_state()
             print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
             impl_result = await self._send_task_to_agent(
                 agent_id=self.FRONTEND_ID,
@@ -1093,6 +1307,7 @@ Please try again or provide more details."""
 
             # Step 3: Quality verification loop - ensure score >= 8/10
             self.current_phase = "review"
+            await self._save_state()
             print("\n[Step 3/5] 🔍 Quality verification (minimum score: {}/10, via A2A)...".format(self.min_quality_score))
 
             review_iteration = 0
@@ -1165,6 +1380,7 @@ Please address all feedback and improve the implementation to meet the quality s
 
             # Step 4: Deploy to Netlify with build verification and retry
             self.current_phase = "deployment"
+            await self._save_state()
             print("\n[Step 4/5] 🚀 Deploying to Netlify with build verification...")
             deployment_result = await self._deploy_with_retry(
                 user_prompt=user_prompt,
@@ -1191,6 +1407,12 @@ Please address all feedback and improve the implementation to meet the quality s
 
             print("\n" + "-" * 60)
             print("✅ [ORCHESTRATOR] Full build complete (A2A Protocol)!\n")
+
+            # Mark as inactive and delete state after successful completion
+            self.is_active = False
+            self.current_phase = None
+            await self._delete_state()
+
             return response
 
         finally:
@@ -1204,8 +1426,9 @@ Please address all feedback and improve the implementation to meet the quality s
         """Bug fix workflow: Frontend fixes code → Deploy (via A2A)"""
         print(f"\n🔧 Starting BUG FIX workflow (A2A Protocol)")
 
-        # Set total steps for progress tracking: Fix (1) + Deploy (1) = 2 steps
-        self.workflow_steps_total = 2
+        # Set total steps for progress tracking: Fix (1-3) + Deploy retries (1-10) + Frontend fixes (0-5) = 2-18 steps
+        # Realistic estimate: ~8 steps average
+        self.workflow_steps_total = 8
 
         if plan and plan.get('special_instructions'):
             print(f"📋 Special instructions: {plan['special_instructions']}")

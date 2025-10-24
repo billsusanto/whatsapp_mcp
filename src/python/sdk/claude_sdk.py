@@ -99,6 +99,51 @@ IMPORTANT:
 4. Monitor deployment progress and report the status
 """
 
+        # If PostgreSQL MCP is available, enhance prompt
+        if available_mcp_servers and "postgres" in available_mcp_servers:
+            base_prompt += """
+
+You have access to PostgreSQL MCP tools for database querying and inspection. Available operations include:
+- query: Execute SELECT queries to retrieve data from the database
+- schema: Inspect database schema (tables, columns, relationships)
+- describe_table: Get detailed information about a specific table
+
+Available Tables:
+- orchestrator_state: Stores orchestrator state for crash recovery
+  - phone_number (primary key): User's phone number
+  - is_active: Whether orchestrator is currently processing
+  - current_phase: Current workflow phase (planning, design, implementation, review, deployment)
+  - current_workflow: Workflow type (full_build, bug_fix, etc.)
+  - original_prompt: User's original request
+  - accumulated_refinements: List of user refinements/modifications
+  - current_implementation: Current implementation details
+  - current_design_spec: Current design specification
+  - workflow_steps_completed: List of completed workflow steps
+  - workflow_steps_total: Total steps in workflow
+  - current_agent_working: Which agent is currently active
+  - current_task_description: Current task being executed
+  - created_at, updated_at: Timestamps
+
+- orchestrator_audit: Audit trail of orchestrator events
+  - id (primary key): Event ID
+  - phone_number: User's phone number
+  - event_type: Type of event (state_saved, state_deleted, etc.)
+  - event_data: Additional event data (JSON)
+  - created_at: Event timestamp
+
+IMPORTANT:
+1. Use PostgreSQL MCP tools (mcp__postgres__*) for database queries
+2. Always use SELECT queries (read-only access recommended)
+3. Use parameterized queries to prevent SQL injection
+4. Query examples:
+   - "How many orchestrators are currently active?"
+   - "What phase is user +1234567890 in?"
+   - "Show me the last 10 events for user +1234567890"
+   - "What's the average time spent in each phase?"
+5. When helping DevOps with monitoring, query the database directly
+6. When Frontend agents need to check user state, use database queries
+"""
+
         self.system_prompt = base_prompt
 
         self.model = "claude-sonnet-4-5-20250929"

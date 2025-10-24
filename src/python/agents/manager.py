@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from agents.agent import Agent
-from agents.session import SessionManager
+from agents.session_redis import RedisSessionManager as SessionManager
 
 # Phase 1.5: Multi-agent system integration
 try:
@@ -87,7 +87,22 @@ class AgentManager:
                 traceback.print_exc()
                 self.enable_netlify = False
 
-        # 4. Initialize Multi-Agent Orchestrator (Phase 1.5+)
+        # 4. Add PostgreSQL MCP if enabled
+        try:
+            sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+            from utils.pgsql_mcp_helper import get_postgres_mcp_config, is_postgres_mcp_enabled
+
+            if is_postgres_mcp_enabled():
+                postgres_config = get_postgres_mcp_config()
+                if postgres_config:
+                    self.available_mcp_servers["postgres"] = postgres_config
+                    print("✅ PostgreSQL MCP configured (pgsql-mcp-server)")
+        except Exception as e:
+            print(f"⚠️  PostgreSQL MCP not available: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # 5. Initialize Multi-Agent Orchestrator (Phase 1.5+)
         self.multi_agent_enabled = False
         self.orchestrators: Dict[str, any] = {}  # Per-user orchestrators
 

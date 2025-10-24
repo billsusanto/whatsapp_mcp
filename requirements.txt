@@ -38,6 +38,29 @@ uvicorn[standard]>=0.24.0
 mcp>=1.18.0
 
 # ============================================
+# Session Storage (Redis)
+# ============================================
+
+# Redis client for session persistence
+redis>=5.0.0
+
+# ============================================
+# Database (PostgreSQL/Neon)
+# ============================================
+
+# SQLAlchemy ORM with async support
+sqlalchemy[asyncio]>=2.0.0
+
+# PostgreSQL async driver (works with Neon)
+asyncpg>=0.29.0
+
+# Alembic for database migrations
+alembic>=1.13.0
+
+# PostgreSQL MCP Server (for agent database access via MCP)
+pgsql-mcp-server>=1.3.2
+
+# ============================================
 # Multi-Agent A2A Dependencies (Phase 1)
 # ============================================
 

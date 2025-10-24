@@ -59,6 +59,16 @@ services:
       # Webapp build requests will route to Designer + Frontend agents
       # Regular conversations use single-agent mode
 
+      # Logfire Telemetry & Observability
+      - key: LOGFIRE_TOKEN
+        sync: false  # Set manually in Render dashboard (REQUIRED for telemetry)
+
+      - key: ENABLE_LOGFIRE
+        value: true  # Enable Logfire telemetry and observability
+
+      - key: ENV
+        value: production  # Environment (development = 100% sampling, production = 10% sampling)
+
       # Service configuration
       - key: PORT
         value: 8000  # Default port (Render may override)
@@ -99,6 +109,7 @@ services:
 #      - WHATSAPP_ACCESS_TOKEN
 #      - WHATSAPP_PHONE_NUMBER_ID
 #      - WHATSAPP_WEBHOOK_VERIFY_TOKEN
+#      - LOGFIRE_TOKEN (get from https://logfire.pydantic.dev/)
 #    OPTIONAL (for GitHub MCP):
 #      - GITHUB_PERSONAL_ACCESS_TOKEN
 #    OPTIONAL (for Netlify MCP):

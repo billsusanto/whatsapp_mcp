@@ -58,33 +58,38 @@ services:
   #     - whatsapp-network
 
   # ==========================================
-  # Optional: Redis for Session Storage
+  # Redis for Session Storage
   # ==========================================
-  # TODO: Uncomment if using Redis for production sessions
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: whatsapp-redis
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis-data:/data
-  #   networks:
-  #     - whatsapp-network
+  redis:
+    image: redis:7-alpine
+    container_name: whatsapp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - whatsapp-network
 
 # ============================================
 # Networks
 # ============================================
-# TODO: Define shared network for inter-service communication
-# networks:
-#   whatsapp-network:
-#     driver: bridge
+networks:
+  whatsapp-network:
+    driver: bridge
 
 # ============================================
-# Volumes (Optional)
+# Volumes
 # ============================================
-# TODO: Define persistent volumes
-# volumes:
-#   redis-data:  # Persist Redis data
+volumes:
+  redis-data:
+    driver: local
 
 # ============================================
 # Usage Instructions:

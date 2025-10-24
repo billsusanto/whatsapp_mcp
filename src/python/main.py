@@ -22,6 +22,7 @@ sys.path.append(os.path.dirname(__file__))
 from agents.manager import AgentManager
 from whatsapp_mcp.client import WhatsAppClient
 from whatsapp_mcp.parser import WhatsAppWebhookParser
+from github_bot import router as github_router
 
 # Load environment variables
 load_dotenv()
@@ -89,6 +90,9 @@ agent_manager = AgentManager(
     enable_github=enable_github,
     enable_netlify=enable_netlify
 )
+
+# Include GitHub bot webhook routes
+app.include_router(github_router)
 
 # Pydantic models for API
 class MessageRequest(BaseModel):
