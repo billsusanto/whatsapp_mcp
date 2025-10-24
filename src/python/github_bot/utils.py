@@ -63,7 +63,7 @@ def verify_github_signature(payload: bytes, signature: str, secret: str) -> bool
     return is_valid
 
 
-def extract_droid_mention(comment_body: str, bot_name: str = "droid") -> Optional[str]:
+def extract_droid_mention(comment_body: str, bot_name: str = "Supernova-Droid") -> Optional[str]:
     """
     Extract command from @mention in a GitHub comment.
 

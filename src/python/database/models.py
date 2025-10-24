@@ -29,8 +29,8 @@ class OrchestratorState(Base):
     """
     __tablename__ = "orchestrator_state"
 
-    # Primary key
-    phone_number: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # Primary key (supports both phone numbers and GitHub repo#issue identifiers)
+    phone_number: Mapped[str] = mapped_column(String(100), primary_key=True)
 
     # State tracking
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -81,8 +81,8 @@ class OrchestratorAudit(Base):
     # Primary key
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # Event details
-    phone_number: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Event details (supports both phone numbers and GitHub repo#issue identifiers)
+    phone_number: Mapped[str] = mapped_column(String(100), nullable=False)
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
     event_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 

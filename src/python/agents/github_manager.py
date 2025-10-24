@@ -2,7 +2,7 @@
 GitHub Agent Manager
 
 Manages agent sessions for GitHub PR/Issue contexts.
-Creates and coordinates the CollaborativeOrchestrator for GitHub events.
+Creates and coordinates both conversational Agent and CollaborativeOrchestrator for GitHub events.
 """
 
 import os
@@ -10,6 +10,7 @@ import time
 import logging
 from typing import Dict, Any, Optional
 
+from agents.agent import Agent
 from agents.collaborative.orchestrator import CollaborativeOrchestrator
 from github_mcp.server import create_github_mcp_config
 from netlify_mcp.server import create_netlify_mcp_config
@@ -54,6 +55,9 @@ class GitHubAgentManager:
         Args:
             command: The command text extracted from @droid mention
         """
+        # Add 👀 reaction to acknowledge the mention
+        await self._add_eyes_reaction()
+
         session = self._sessions.get(self.session_key)
 
         if session and session.get("status") == "in_progress":
@@ -61,22 +65,42 @@ class GitHubAgentManager:
             logger.info(f"Continuing existing session for {self.session_key}")
             orchestrator = session["orchestrator"]
 
-            # Send refinement notification
+            # Handle as refinement (no intermediate messages)
+            result = await orchestrator.handle_refinement(command)
+
+            # Send only the final result
             await self._send_notification(
                 format_github_comment(
-                    "Got it! Processing your additional request...",
-                    status="working"
+                    f"✅ Refinement applied!\n\n{result if isinstance(result, str) else ''}",
+                    status="check"
                 )
             )
 
-            # Handle as refinement
-            await orchestrator.handle_refinement(command)
-
         else:
-            # New session - start fresh workflow
+            # New session - check if this is a webapp request or just conversation
             logger.info(f"Starting new session for {self.session_key}")
 
-            # Create orchestrator
+            # Check if this is actually a webapp build request
+            is_webapp = await self._is_webapp_request(command)
+
+            if not is_webapp:
+                # Regular conversation - use conversational agent
+                logger.info(f"Routing to conversational agent for {self.session_key}")
+
+                # Get or create conversational agent for this session
+                agent = await self._get_or_create_agent()
+
+                # Process message with agent
+                response = await agent.process_message(command)
+
+                # Send agent's response
+                await self._send_notification(
+                    format_github_comment(response, status="check")
+                )
+                return
+
+            # Create orchestrator for webapp request
+            logger.info(f"Routing to orchestrator for webapp work: {self.session_key}")
             orchestrator = await self._create_orchestrator()
 
             # Store session
@@ -88,27 +112,24 @@ class GitHubAgentManager:
                 "command": command
             }
 
-            # Send initial notification
-            await self._send_notification(
-                format_github_comment(
-                    "Request received! Multi-agent team processing your request...",
-                    status="rocket"
-                )
-            )
+            # Execute workflow (silent mode - no intermediate notifications)
+            result = await orchestrator.build_webapp(command)
 
-            # Start workflow
-            await orchestrator.build_webapp(command)
+            # Send only the final result
+            await self._send_notification(
+                format_github_comment(result, status="check")
+            )
 
             # Mark session as completed
             self._sessions[self.session_key]["status"] = "completed"
             self._sessions[self.session_key]["completed_at"] = time.time()
 
-    async def _create_orchestrator(self) -> CollaborativeOrchestrator:
+    def _get_mcp_servers_config(self) -> Dict[str, Any]:
         """
-        Create a new CollaborativeOrchestrator configured for GitHub.
+        Get MCP server configuration for GitHub context.
 
         Returns:
-            Configured orchestrator instance
+            Dictionary of available MCP servers
         """
         # Get GitHub MCP config
         github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
@@ -132,10 +153,67 @@ class GitHubAgentManager:
                 netlify_mcp_config = create_netlify_mcp_config(token=netlify_token)
                 available_mcp_servers["netlify"] = netlify_mcp_config
 
-        # Create orchestrator
+        return available_mcp_servers
+
+    async def _get_or_create_agent(self) -> Agent:
+        """
+        Get or create a conversational Agent for this GitHub session.
+
+        Returns:
+            Agent instance for conversation
+        """
+        # Check if agent already exists in session
+        session = self._sessions.get(self.session_key)
+        if session and "agent" in session:
+            return session["agent"]
+
+        # Create new agent
+        available_mcp_servers = self._get_mcp_servers_config()
+
+        agent = Agent(
+            phone_number=self.session_key,  # Use session_key as identifier
+            session_manager=None,  # GitHub doesn't use Redis session manager
+            available_mcp_servers=available_mcp_servers
+        )
+
+        # Store agent in session for reuse
+        if not session:
+            self._sessions[self.session_key] = {"agent": agent}
+        else:
+            session["agent"] = agent
+
+        logger.info(
+            f"Created conversational agent for {self.session_key} with "
+            f"MCP servers: {list(available_mcp_servers.keys())}"
+        )
+
+        return agent
+
+    async def _silent_callback(self, message: str):
+        """
+        Silent callback for orchestrator - logs but doesn't send notifications.
+
+        This prevents intermediate status updates from being posted to GitHub.
+        Only the final result will be sent.
+
+        Args:
+            message: Message from orchestrator (logged but not sent)
+        """
+        logger.debug(f"[SILENT] Orchestrator message: {message[:100]}...")
+
+    async def _create_orchestrator(self) -> CollaborativeOrchestrator:
+        """
+        Create a new CollaborativeOrchestrator configured for GitHub.
+
+        Returns:
+            Configured orchestrator instance
+        """
+        available_mcp_servers = self._get_mcp_servers_config()
+
+        # Create orchestrator with silent callback (no intermediate notifications)
         orchestrator = CollaborativeOrchestrator(
             user_id=self.session_key,
-            send_message_callback=self._send_notification,
+            send_message_callback=self._silent_callback,  # Silent mode
             platform="github",
             github_context=self.context,
             available_mcp_servers=available_mcp_servers
@@ -147,6 +225,35 @@ class GitHubAgentManager:
         )
 
         return orchestrator
+
+    async def _add_eyes_reaction(self):
+        """
+        Add 👀 reaction to the comment that mentioned the bot.
+
+        This acknowledges the mention immediately while the bot processes.
+        """
+        try:
+            comment_id = self.context.get("comment", {}).get("id")
+            if not comment_id:
+                logger.warning("Cannot add reaction: no comment ID found")
+                return
+
+            repo = self.context["repository"]["full_name"]
+
+            # Add 👀 (eyes) reaction
+            result = self.github_client.react_to_comment(
+                repo=repo,
+                comment_id=comment_id,
+                reaction="eyes"
+            )
+
+            if result:
+                logger.info(f"Added 👀 reaction to comment {comment_id}")
+            else:
+                logger.warning(f"Failed to add reaction to comment {comment_id}")
+
+        except Exception as e:
+            logger.error(f"Error adding reaction: {e}", exc_info=True)
 
     async def _send_notification(self, message: str):
         """
@@ -191,6 +298,99 @@ class GitHubAgentManager:
             return self.context.get("pull_request", {}).get("number")
         else:
             return self.context.get("issue", {}).get("number")
+
+    async def _is_webapp_request(self, message: str) -> bool:
+        """
+        Use AI to intelligently detect if user is requesting webapp creation/work
+
+        Args:
+            message: User's message text
+
+        Returns:
+            True if message appears to be a webapp build/fix request
+        """
+        # Quick heuristic for obvious cases to save API calls
+        quick_check_keywords = ["build", "create", "make", "fix", "deploy", "webapp", "website", "application", "app"]
+        message_lower = message.lower()
+
+        if any(keyword in message_lower for keyword in quick_check_keywords):
+            # Likely a webapp request
+            pass
+        elif len(message.split()) <= 3:
+            # Very short messages like "hello", "hi", "thanks" are unlikely to be webapp requests
+            return False
+
+        # Use AI to determine intent
+        decision_prompt = f"""Analyze this user message and determine if they are requesting webapp/website work or just having a conversation.
+
+**User Message:** "{message}"
+
+**Your Task:**
+Determine if this is:
+A) A request to build/create/design/fix/deploy a webapp, website, or application
+B) A regular conversation, question, greeting, or general request
+
+**Examples of webapp requests:**
+- "Build me a todo list app"
+- "Create a booking website"
+- "Fix the login bug"
+- "Deploy this to Netlify"
+- "Make a dashboard"
+
+**Examples of regular conversation:**
+- "How are you?"
+- "Hello"
+- "What can you do?"
+- "Thanks"
+- "hi"
+
+**Output Format (JSON):**
+{{
+  "is_webapp_request": true | false,
+  "confidence": 0.0-1.0,
+  "reasoning": "Brief explanation"
+}}
+
+Be precise. Only return true if the user is clearly requesting webapp/website development work."""
+
+        try:
+            # Create a temporary Claude SDK for decision making
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            from sdk.claude_sdk import ClaudeSDK
+
+            decision_sdk = ClaudeSDK(available_mcp_servers={})
+            response = await decision_sdk.send_message(decision_prompt)
+            await decision_sdk.close()
+
+            # Extract JSON
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                decision = json.loads(json_match.group(1))
+            elif response.strip().startswith('{'):
+                decision = json.loads(response)
+            else:
+                # Fallback: if AI didn't return JSON, assume not webapp request
+                logger.warning("Could not parse webapp detection response, defaulting to False")
+                return False
+
+            is_webapp = decision.get('is_webapp_request', False)
+            confidence = decision.get('confidence', 0.0)
+            reasoning = decision.get('reasoning', 'N/A')
+
+            logger.info(f"Webapp detection: {is_webapp} (confidence: {confidence:.2f}) - {reasoning}")
+
+            return is_webapp
+
+        except Exception as e:
+            logger.error(f"Error in webapp detection: {e}")
+            # Fallback to keyword matching only on error
+            webapp_keywords = ["build", "create", "make", "fix", "deploy", "website", "webapp", "app", "site"]
+            return any(keyword in message_lower for keyword in webapp_keywords)
 
     @classmethod
     def get_active_sessions(cls) -> Dict[str, Dict[str, Any]]:
