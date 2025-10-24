@@ -6,12 +6,15 @@ Handles @droid mentions in PR and Issue comments.
 """
 
 import os
+import sys
 import json
 import asyncio
 import logging
 from typing import Dict, Any
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from github_bot.utils import (
     verify_github_signature,
@@ -20,6 +23,15 @@ from github_bot.utils import (
     format_github_comment,
 )
 from github_bot.parser import parse_github_event
+
+# Import Logfire telemetry utilities
+from utils.telemetry import (
+    log_event,
+    log_user_action,
+    log_error,
+    trace_operation,
+    measure_performance
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +92,13 @@ async def webhook_receive(request: Request, background_tasks: BackgroundTasks):
         f"delivery={delivery_id}"
     )
 
+    # Log webhook event to Logfire
+    log_event(
+        "github.webhook_received",
+        event_type=event_type,
+        delivery_id=delivery_id
+    )
+
     # Verify signature
     if not verify_github_signature(body, signature, webhook_secret):
         logger.warning(f"Invalid signature for delivery {delivery_id}")
@@ -98,6 +117,11 @@ async def webhook_receive(request: Request, background_tasks: BackgroundTasks):
     if not context:
         # Event not relevant (e.g., not a comment creation)
         logger.debug(f"Ignoring event type {event_type}")
+        log_event(
+            "github.event_ignored",
+            event_type=event_type,
+            reason="not a relevant event"
+        )
         return JSONResponse(
             content={"status": "ignored", "reason": "not a relevant event"},
             status_code=200
@@ -110,6 +134,12 @@ async def webhook_receive(request: Request, background_tasks: BackgroundTasks):
     # Check if comment is from a bot (avoid loops)
     if is_bot_comment(comment_author):
         logger.debug(f"Ignoring comment from bot: {comment_author}")
+        log_event(
+            "github.event_ignored",
+            event_type=event_type,
+            reason="bot comment",
+            bot_author=comment_author
+        )
         return JSONResponse(
             content={"status": "ignored", "reason": "bot comment"},
             status_code=200
@@ -121,15 +151,33 @@ async def webhook_receive(request: Request, background_tasks: BackgroundTasks):
 
     if not command:
         logger.debug("No @Supernova-Droid mention found in comment")
+        log_event(
+            "github.event_ignored",
+            event_type=event_type,
+            reason="no mention"
+        )
         return JSONResponse(
             content={"status": "ignored", "reason": "no mention"},
             status_code=200
         )
 
     # We have a valid @droid mention! Process it in the background
+    repo_full_name = context['repository']['full_name']
+    issue_number = context.get('pull_request', context.get('issue', {})).get('number')
+
     logger.info(
-        f"Processing @droid mention in {context['repository']['full_name']} "
-        f"#{context.get('pull_request', context.get('issue', {})).get('number')}"
+        f"Processing @droid mention in {repo_full_name} "
+        f"#{issue_number}"
+    )
+
+    # Log the mention to Logfire
+    log_user_action(
+        "github.mention_detected",
+        f"{repo_full_name}#{issue_number}",
+        repo=repo_full_name,
+        issue_number=issue_number,
+        command_preview=command[:100] if command else "",
+        author=comment_author
     )
 
     # Add background task to process the command
@@ -159,96 +207,130 @@ async def process_droid_command(command: str, context: Dict[str, Any]):
         command: The command text extracted from @droid mention
         context: Full context from the GitHub event
     """
+    # Create session key
+    repo_full_name = context['repository']['full_name']
+    issue_number = context.get('pull_request', context.get('issue', {})).get('number')
+    session_key = f"{repo_full_name}#{issue_number}"
+
     try:
         logger.info(f"Starting command processing: {command[:50]}...")
 
-        # Import here to avoid circular imports
-        from agents.unified_manager import UnifiedAgentManager
-        from agents.adapters.github_adapter import GitHubAdapter
-        from agents.session import SessionManager
-        from github_bot.client import GitHubClient
+        # Start performance measurement and tracing
+        with measure_performance("github.command_processing") as perf:
+            with trace_operation(
+                "GitHub Command Processing",
+                repo=repo_full_name,
+                issue_number=issue_number,
+                command_preview=command[:100]
+            ):
+                # Import here to avoid circular imports
+                from agents.unified_manager import UnifiedAgentManager
+                from agents.adapters.github_adapter import GitHubAdapter
+                from agents.session import SessionManager
+                from github_bot.client import GitHubClient
 
-        # Create session key (e.g., "owner/repo#42")
-        repo_full_name = context['repository']['full_name']
-        issue_number = context.get('pull_request', context.get('issue', {})).get('number')
-        session_key = f"{repo_full_name}#{issue_number}"
+                # Build MCP configuration for GitHub platform
+                mcp_config = {}
 
-        # Build MCP configuration for GitHub platform
-        mcp_config = {}
+                # Add GitHub MCP
+                enable_github = os.getenv("ENABLE_GITHUB_MCP", "false").lower() == "true"
+                if enable_github:
+                    try:
+                        import sys
+                        sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                        from github_mcp.server import create_github_mcp_config
+                        mcp_config["github"] = create_github_mcp_config()
+                    except Exception as e:
+                        logger.warning(f"GitHub MCP not available: {e}")
 
-        # Add GitHub MCP
-        enable_github = os.getenv("ENABLE_GITHUB_MCP", "false").lower() == "true"
-        if enable_github:
-            try:
-                import sys
-                sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-                from github_mcp.server import create_github_mcp_config
-                mcp_config["github"] = create_github_mcp_config()
-            except Exception as e:
-                logger.warning(f"GitHub MCP not available: {e}")
+                # Add Netlify MCP (required for deployments)
+                enable_netlify = os.getenv("ENABLE_NETLIFY_MCP", "false").lower() == "true"
+                if enable_netlify:
+                    try:
+                        import sys
+                        sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                        from netlify_mcp.server import create_netlify_mcp_config
+                        mcp_config["netlify"] = create_netlify_mcp_config()
+                    except Exception as e:
+                        logger.warning(f"Netlify MCP not available: {e}")
 
-        # Add Netlify MCP (required for deployments)
-        enable_netlify = os.getenv("ENABLE_NETLIFY_MCP", "false").lower() == "true"
-        if enable_netlify:
-            try:
-                import sys
-                sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-                from netlify_mcp.server import create_netlify_mcp_config
-                mcp_config["netlify"] = create_netlify_mcp_config()
-            except Exception as e:
-                logger.warning(f"Netlify MCP not available: {e}")
+                # Add PostgreSQL MCP
+                try:
+                    import sys
+                    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                    from utils.pgsql_mcp_helper import get_postgres_mcp_config, is_postgres_mcp_enabled
+                    if is_postgres_mcp_enabled():
+                        postgres_config = get_postgres_mcp_config()
+                        if postgres_config:
+                            mcp_config["postgres"] = postgres_config
+                except Exception as e:
+                    logger.warning(f"PostgreSQL MCP not available: {e}")
 
-        # Add PostgreSQL MCP
-        try:
-            import sys
-            sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-            from utils.pgsql_mcp_helper import get_postgres_mcp_config, is_postgres_mcp_enabled
-            if is_postgres_mcp_enabled():
-                postgres_config = get_postgres_mcp_config()
-                if postgres_config:
-                    mcp_config["postgres"] = postgres_config
-        except Exception as e:
-            logger.warning(f"PostgreSQL MCP not available: {e}")
+                # Create GitHub adapter
+                github_client = GitHubClient()
+                github_adapter = GitHubAdapter(github_client, context)
 
-        # Create GitHub adapter
-        github_client = GitHubClient()
-        github_adapter = GitHubAdapter(github_client, context)
+                # Create session manager (in-memory for GitHub)
+                session_manager = SessionManager(ttl_minutes=60, max_history=10)
 
-        # Create session manager (in-memory for GitHub)
-        session_manager = SessionManager(ttl_minutes=60, max_history=10)
+                # Create unified manager
+                manager = UnifiedAgentManager(
+                    platform="github",
+                    session_manager=session_manager,
+                    notification_adapter=github_adapter,
+                    mcp_config=mcp_config,
+                    enable_multi_agent=enable_netlify,
+                    platform_context=context
+                )
 
-        # Create unified manager
-        manager = UnifiedAgentManager(
-            platform="github",
-            session_manager=session_manager,
-            notification_adapter=github_adapter,
-            mcp_config=mcp_config,
-            enable_multi_agent=enable_netlify,
-            platform_context=context
-        )
+                # Add 👀 reaction to acknowledge
+                comment_id = context.get('comment', {}).get('id')
+                if comment_id:
+                    await github_adapter.send_reaction(str(comment_id), "eyes")
 
-        # Add 👀 reaction to acknowledge
-        comment_id = context.get('comment', {}).get('id')
-        if comment_id:
-            await github_adapter.send_reaction(str(comment_id), "eyes")
+                # Process the command
+                response = await manager.process_message(session_key, command, context)
 
-        # Process the command
-        response = await manager.process_message(session_key, command, context)
+                # Track response length for metrics
+                perf.set_metadata(
+                    repo=repo_full_name,
+                    issue_number=issue_number,
+                    response_length=len(response) if response else 0
+                )
 
-        # Send response back to GitHub
-        if response:
-            await github_adapter.send_message(session_key, response)
+                # Send response back to GitHub
+                if response:
+                    await github_adapter.send_message(session_key, response)
 
-        logger.info(f"Command processing completed for {session_key}")
+                logger.info(f"Command processing completed for {session_key}")
+
+                # Log successful completion
+                log_user_action(
+                    "github.command_completed",
+                    session_key,
+                    repo=repo_full_name,
+                    issue_number=issue_number,
+                    response_length=len(response) if response else 0
+                )
 
     except Exception as e:
         logger.error(f"Error processing @droid command: {e}", exc_info=True)
+
+        # Log error to Logfire
+        log_error(
+            e,
+            "github.command_processing",
+            repo=repo_full_name,
+            issue_number=issue_number,
+            session_key=session_key
+        )
 
         # Try to post error comment to GitHub
         try:
             await post_error_comment(context, str(e))
         except Exception as post_error:
             logger.error(f"Failed to post error comment: {post_error}")
+            log_error(post_error, "github.post_error_comment", session_key=session_key)
 
 
 async def post_error_comment(context: Dict[str, Any], error_message: str):

@@ -12,6 +12,13 @@ from typing import Dict, Any, Optional
 from .notification import NotificationAdapter
 from github_bot.client import GitHubClient
 
+# Import Logfire telemetry
+from utils.telemetry import (
+    log_event,
+    log_error,
+    measure_performance
+)
+
 
 class GitHubAdapter(NotificationAdapter):
     """
@@ -68,13 +75,33 @@ class GitHubAdapter(NotificationAdapter):
             Exception: If GitHub API call fails
         """
         try:
-            result = self.client.post_comment(self._repo, self._number, message)
-            if result:
-                print(f"💬 GitHub comment posted to {self._repo}#{self._number}: {message[:50]}...")
-            else:
-                raise Exception(f"Failed to post comment to {self._repo}#{self._number}")
+            with measure_performance("github.post_comment") as perf:
+                result = self.client.post_comment(self._repo, self._number, message)
+
+                perf.set_metadata(
+                    repo=self._repo,
+                    issue_number=self._number,
+                    message_length=len(message)
+                )
+
+                if result:
+                    print(f"💬 GitHub comment posted to {self._repo}#{self._number}: {message[:50]}...")
+                    log_event(
+                        "github.comment_posted",
+                        repo=self._repo,
+                        issue_number=self._number,
+                        message_length=len(message)
+                    )
+                else:
+                    raise Exception(f"Failed to post comment to {self._repo}#{self._number}")
         except Exception as e:
             print(f"❌ Failed to post GitHub comment to {self._repo}#{self._number}: {e}")
+            log_error(
+                e,
+                "github.post_comment",
+                repo=self._repo,
+                issue_number=self._number
+            )
             raise
 
     async def send_reaction(self, message_id: str, reaction: str) -> None:
@@ -103,12 +130,27 @@ class GitHubAdapter(NotificationAdapter):
             result = self.client.react_to_comment(self._repo, comment_id, reaction)
             if result:
                 print(f"👀 GitHub reaction '{reaction}' added to comment {comment_id}")
+                log_event(
+                    "github.reaction_added",
+                    repo=self._repo,
+                    issue_number=self._number,
+                    comment_id=comment_id,
+                    reaction=reaction
+                )
             else:
                 print(f"⚠️  Failed to add GitHub reaction to comment {comment_id}")
 
         except Exception as e:
             print(f"⚠️  Error adding GitHub reaction: {e}")
-            # Don't raise - reactions are non-critical
+            # Don't raise - reactions are non-critical (but log the error)
+            log_error(
+                e,
+                "github.add_reaction",
+                repo=self._repo,
+                issue_number=self._number,
+                comment_id=comment_id if 'comment_id' in locals() else None,
+                reaction=reaction
+            )
 
     def get_platform_name(self) -> str:
         """Get platform identifier."""
