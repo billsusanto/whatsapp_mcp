@@ -19,6 +19,15 @@ from .devops_agent import DevOpsEngineerAgent
 from .models import Task, TaskResponse
 from .a2a_protocol import a2a_protocol
 
+# Import telemetry
+from utils.telemetry import (
+    trace_workflow,
+    trace_operation,
+    log_event,
+    log_metric,
+    measure_performance
+)
+
 
 class CollaborativeOrchestrator:
     """
@@ -121,7 +130,7 @@ class CollaborativeOrchestrator:
         # Configuration
         self.max_review_iterations = 10  # Maximum review/improvement iterations
         self.min_quality_score = 9  # Minimum acceptable review score (out of 10)
-        self.max_build_retries = 5  # Maximum build retry attempts
+        self.max_build_retries = 10  # Maximum build retry attempts (increased from 5)
         self.enable_agent_caching = False  # Set to True to reuse agents (uses more memory but faster)
 
         # Task State Management (for handling concurrent messages)
@@ -598,7 +607,7 @@ Please update the implementation to incorporate this change.""",
         notify_user: bool = True
     ) -> Dict:
         """
-        Send a task to an agent via A2A protocol with lazy initialization
+        Send a task to an agent via A2A protocol with full telemetry tracking
 
         Args:
             agent_id: Target agent ID
@@ -615,55 +624,88 @@ Please update the implementation to incorporate this change.""",
         agent_type = self._get_agent_type_from_id(agent_id)
         agent_type_name = self._get_agent_type_name(agent_id)
 
-        # Update current agent tracking for status queries
-        self.current_agent_working = agent_id
-        self.current_task_description = task_description
-
-        # Notify user: A2A communication starting
-        if notify_user:
-            self._send_whatsapp_notification(
-                f"🤖 Orchestrator → {agent_type_name}\n"
-                f"📋 Task: {task_description[:80]}..."
-            )
-
-        # Spin up agent on-demand
-        agent = await self._get_agent(agent_type)
-
-        # Create task
-        task = Task(
-            description=task_description,
-            from_agent=self.orchestrator_id,
-            to_agent=agent.agent_card.agent_id,  # Use actual agent ID
+        # Create A2A communication span with comprehensive metadata
+        with trace_operation(
+            f"A2A: orchestrator → {agent_type_name}",
+            from_agent="orchestrator",
+            to_agent=agent_id,
+            agent_type=agent_type,
+            agent_name=agent_type_name,
+            task_description=task_description[:200] if len(task_description) > 200 else task_description,
             priority=priority,
-            metadata=metadata
-        )
+            cleanup_after=cleanup_after,
+            has_metadata=metadata is not None
+        ) as a2a_span:
 
-        # Send task via A2A protocol
-        response = await a2a_protocol.send_task(
-            from_agent_id=self.orchestrator_id,
-            to_agent_id=agent.agent_card.agent_id,
-            task=task
-        )
+            # Update current agent tracking for status queries
+            self.current_agent_working = agent_id
+            self.current_task_description = task_description
 
-        # Mark step as completed
-        step_name = f"{agent_type_name}: {task_description[:60]}{'...' if len(task_description) > 60 else ''}"
-        self.workflow_steps_completed.append(step_name)
+            # Notify user: A2A communication starting
+            if notify_user:
+                self._send_whatsapp_notification(
+                    f"🤖 Orchestrator → {agent_type_name}\n"
+                    f"📋 Task: {task_description[:80]}..."
+                )
 
-        # Clear current agent tracking
-        self.current_agent_working = None
-        self.current_task_description = None
+            # Spin up agent on-demand
+            agent = await self._get_agent(agent_type)
 
-        # Notify user: Task completed
-        if notify_user:
-            self._send_whatsapp_notification(
-                f"✅ Task Done by: {agent_type_name}"
+            # Create task
+            task = Task(
+                description=task_description,
+                from_agent=self.orchestrator_id,
+                to_agent=agent.agent_card.agent_id,  # Use actual agent ID
+                priority=priority,
+                metadata=metadata
             )
 
-        # Clean up agent after task completion (unless disabled)
-        if cleanup_after:
-            await self._cleanup_agent(agent_type)
+            # Add task metadata to span
+            if a2a_span:
+                a2a_span.set_attribute("task_id", task.task_id)
+                a2a_span.set_attribute("actual_agent_id", agent.agent_card.agent_id)
 
-        return response.result
+            # Send task via A2A protocol (agent's telemetry will track execution)
+            response = await a2a_protocol.send_task(
+                from_agent_id=self.orchestrator_id,
+                to_agent_id=agent.agent_card.agent_id,
+                task=task
+            )
+
+            # Mark step as completed
+            step_name = f"{agent_type_name}: {task_description[:60]}{'...' if len(task_description) > 60 else ''}"
+            self.workflow_steps_completed.append(step_name)
+
+            # Add completion metadata to span
+            if a2a_span:
+                a2a_span.set_attribute("task_completed", True)
+                a2a_span.set_attribute("step_name", step_name)
+                a2a_span.set_attribute("response_status", response.status if hasattr(response, 'status') else "completed")
+
+            # Clear current agent tracking
+            self.current_agent_working = None
+            self.current_task_description = None
+
+            # Notify user: Task completed
+            if notify_user:
+                self._send_whatsapp_notification(
+                    f"✅ Task Done by: {agent_type_name}"
+                )
+
+            # Log A2A communication event
+            log_event(
+                "a2a_task_sent",
+                from_agent="orchestrator",
+                to_agent=agent_type_name,
+                agent_id=agent_id,
+                task_description=task_description[:100]
+            )
+
+            # Clean up agent after task completion (unless disabled)
+            if cleanup_after:
+                await self._cleanup_agent(agent_type)
+
+            return response.result
 
     async def _request_review_from_agent(
         self,
@@ -673,7 +715,7 @@ Please update the implementation to incorporate this change.""",
         notify_user: bool = True
     ) -> Dict:
         """
-        Request artifact review from an agent via A2A protocol with lazy initialization
+        Request artifact review from an agent via A2A protocol with full telemetry tracking
 
         Args:
             agent_id: Reviewer agent ID
@@ -688,50 +730,88 @@ Please update the implementation to incorporate this change.""",
         agent_type = self._get_agent_type_from_id(agent_id)
         agent_type_name = self._get_agent_type_name(agent_id)
 
-        # Update current agent tracking for status queries
-        self.current_agent_working = agent_id
-        self.current_task_description = "Reviewing implementation for quality and design adherence"
+        # Create A2A review request span with metadata
+        with trace_operation(
+            f"A2A Review: orchestrator → {agent_type_name}",
+            from_agent="orchestrator",
+            to_agent=agent_id,
+            agent_type=agent_type,
+            agent_name=agent_type_name,
+            review_type="design_fidelity",
+            cleanup_after=cleanup_after
+        ) as review_span:
 
-        # Notify user: Review request
-        if notify_user:
-            self._send_whatsapp_notification(
-                f"🔍 Orchestrator → {agent_type_name}\n"
-                f"📋 Requesting review of implementation..."
+            # Update current agent tracking for status queries
+            self.current_agent_working = agent_id
+            self.current_task_description = "Reviewing implementation for quality and design adherence"
+
+            # Notify user: Review request
+            if notify_user:
+                self._send_whatsapp_notification(
+                    f"🔍 Orchestrator → {agent_type_name}\n"
+                    f"📋 Requesting review of implementation..."
+                )
+
+            # Spin up agent on-demand
+            agent = await self._get_agent(agent_type)
+
+            # Request review via A2A protocol (agent's telemetry will track review)
+            review = await a2a_protocol.request_review(
+                from_agent_id=self.orchestrator_id,
+                to_agent_id=agent.agent_card.agent_id,
+                artifact=artifact
             )
 
-        # Spin up agent on-demand
-        agent = await self._get_agent(agent_type)
+            # Mark step as completed
+            score = review.get('score', 'N/A')
+            step_name = f"{agent_type_name}: Review completed (Score: {score}/10)"
+            self.workflow_steps_completed.append(step_name)
 
-        # Request review via A2A protocol
-        review = await a2a_protocol.request_review(
-            from_agent_id=self.orchestrator_id,
-            to_agent_id=agent.agent_card.agent_id,
-            artifact=artifact
-        )
+            # Add review metrics to span
+            if review_span:
+                review_span.set_attribute("review_completed", True)
+                review_span.set_attribute("review_score", score if isinstance(score, (int, float)) else 0)
+                review_span.set_attribute("review_approved", review.get('approved', False))
+                review_span.set_attribute("feedback_count", len(review.get('feedback', [])))
+                review_span.set_attribute("step_name", step_name)
 
-        # Mark step as completed
-        score = review.get('score', 'N/A')
-        step_name = f"{agent_type_name}: Review completed (Score: {score}/10)"
-        self.workflow_steps_completed.append(step_name)
+            # Clear current agent tracking
+            self.current_agent_working = None
+            self.current_task_description = None
 
-        # Clear current agent tracking
-        self.current_agent_working = None
-        self.current_task_description = None
+            # Notify user: Review completed
+            if notify_user:
+                approved = review.get('approved', False)
+                status = "✅ Approved" if approved else "⚠️ Needs improvement"
+                self._send_whatsapp_notification(
+                    f"✅ Review Done by: {agent_type_name}\n"
+                    f"📊 Score: {score}/10 - {status}"
+                )
 
-        # Notify user: Review completed
-        if notify_user:
-            approved = review.get('approved', False)
-            status = "✅ Approved" if approved else "⚠️ Needs improvement"
-            self._send_whatsapp_notification(
-                f"✅ Review Done by: {agent_type_name}\n"
-                f"📊 Score: {score}/10 - {status}"
+            # Log A2A review event
+            log_event(
+                "a2a_review_requested",
+                from_agent="orchestrator",
+                to_agent=agent_type_name,
+                agent_id=agent_id,
+                review_score=score if isinstance(score, (int, float)) else 0,
+                approved=review.get('approved', False)
             )
 
-        # Clean up agent after review (unless disabled)
-        if cleanup_after:
-            await self._cleanup_agent(agent_type)
+            # Log review score as metric
+            if isinstance(score, (int, float)):
+                log_metric(
+                    "orchestrator.review_score",
+                    float(score),
+                    agent_name=agent_type_name,
+                    approved=review.get('approved', False)
+                )
 
-        return review
+            # Clean up agent after review (unless disabled)
+            if cleanup_after:
+                await self._cleanup_agent(agent_type)
+
+            return review
 
     # ==========================================
     # AI PLANNING
@@ -962,6 +1042,7 @@ Please try again or provide more details."""
     # WORKFLOW IMPLEMENTATIONS (A2A-ENABLED)
     # ==========================================
 
+    @trace_workflow("full_build")
     async def _workflow_full_build(self, user_prompt: str, plan: Dict = None) -> str:
         """Full build workflow: Designer → Frontend → Review → Deploy (via A2A)"""
         print(f"\n🏗️  Starting FULL BUILD workflow (A2A Protocol)")
@@ -1118,6 +1199,7 @@ Please address all feedback and improve the implementation to meet the quality s
             await self._cleanup_all_active_agents()
             print("✓ All agents cleaned up - resources freed")
 
+    @trace_workflow("bug_fix")
     async def _workflow_bug_fix(self, user_prompt: str, plan: Dict = None) -> str:
         """Bug fix workflow: Frontend fixes code → Deploy (via A2A)"""
         print(f"\n🔧 Starting BUG FIX workflow (A2A Protocol)")
@@ -1173,6 +1255,7 @@ Please address all feedback and improve the implementation to meet the quality s
         print("✅ [ORCHESTRATOR] Bug fix complete (A2A)!\n")
         return response
 
+    @trace_workflow("redeploy")
     async def _workflow_redeploy(self, user_prompt: str, plan: Dict = None) -> str:
         """Redeploy workflow: Just deploy existing code"""
         print(f"\n🚀 Starting REDEPLOY workflow")
@@ -1228,6 +1311,7 @@ Respond with ONLY the deployment URL."""
         print("✅ [ORCHESTRATOR] Redeploy complete!\n")
         return response
 
+    @trace_workflow("design_only")
     async def _workflow_design_only(self, user_prompt: str, plan: Dict = None) -> str:
         """Design only workflow: Designer creates design spec (via A2A)"""
         print(f"\n🎨 Starting DESIGN ONLY workflow (A2A Protocol)")
@@ -1356,6 +1440,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
                 "task_description": step
             }
 
+    @trace_workflow("custom")
     async def _workflow_custom(self, user_prompt: str, plan: Dict) -> str:
         """
         Custom workflow: Execute workflow based on AI planner's instructions (via A2A)
@@ -1563,7 +1648,7 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
         design_spec: Dict
     ) -> Dict:
         """
-        Deploy to Netlify with build verification and automatic retry (using A2A for fixes)
+        Deploy to Netlify with build verification and automatic retry (using DevOps agent via A2A)
 
         Returns:
             {
@@ -1579,52 +1664,222 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
 
         while attempts < self.max_build_retries:
             attempts += 1
-            print(f"\n🔨 Build attempt {attempts}/{self.max_build_retries}")
+            print(f"\n🔨 Deployment attempt {attempts}/{self.max_build_retries}")
 
-            # Try to deploy
-            deployment_url, build_error = await self._deploy_and_check_build(
-                user_prompt=user_prompt,
-                implementation=current_implementation
-            )
+            # Call DevOps agent to deploy (includes GitHub setup, push, Netlify deploy, build verification)
+            try:
+                devops_result = await self._send_task_to_agent(
+                    agent_id=self.DEVOPS_ID,
+                    task_description=f"""Deploy this webapp to Netlify with full GitHub workflow.
 
-            # Success!
-            if deployment_url and not build_error:
-                print(f"✅ Build successful on attempt {attempts}")
-                return {
-                    'url': deployment_url,
-                    'attempts': attempts,
-                    'final_implementation': current_implementation,
-                    'build_errors': all_build_errors
-                }
+User request: {user_prompt}
 
-            # Build failed
-            if build_error:
-                print(f"❌ Build failed on attempt {attempts}")
-                print(f"   Error: {build_error[:200]}...")
-                all_build_errors.append(build_error)
+Deployment attempt: {attempts}/{self.max_build_retries}
 
-                # If this is the last attempt, give up
-                if attempts >= self.max_build_retries:
-                    print(f"⚠️  Max retries reached - deploying with errors")
+CRITICAL STEPS:
+1. Create/verify GitHub repository
+2. Generate netlify.toml with NPM_FLAGS = "--include=dev"
+3. Write all files to the repository
+4. Push to GitHub (billsusanto account)
+5. Deploy from GitHub to Netlify
+6. Check build logs for errors
+7. Verify the deployed site loads
+
+🔥 IMPORTANT - USE LOGFIRE FOR DEBUGGING:
+- If this is a retry attempt ({attempts > 1}), FIRST query Logfire to see what failed before
+- Query: span.name contains "Deploy" AND timestamp > now() - 1h
+- Look for previous deployment traces to understand what went wrong
+- Extract exact error messages, file paths, line numbers from Logfire traces
+- Use production telemetry data (not assumptions) to identify root causes
+- Reference specific trace IDs in your error analysis
+
+Dashboard: https://logfire.pydantic.dev/
+Project: whatsapp-mcp
+
+If build fails:
+- Query Logfire for the deployment trace
+- Extract EXACT error messages from build logs
+- Provide structured error data with file paths and line numbers
+- Return detailed error report for Frontend to fix
+
+If successful, return the live deployment URL.""",
+                    metadata={"implementation": current_implementation, "design_spec": design_spec},
+                    priority="high",
+                    cleanup_after=False,  # Keep DevOps alive for retries
+                    notify_user=True
+                )
+
+                devops_report = devops_result.get('devops_report', {})
+                build_verification = devops_report.get('build_verification', {})
+                netlify_deployment = devops_report.get('netlify_deployment', {})
+
+                # Extract deployment URL and build status
+                deployment_url = netlify_deployment.get('deployment_url') or devops_report.get('deployment_url')
+                build_successful = build_verification.get('build_successful', False)
+                build_errors = build_verification.get('build_errors', [])
+
+                # Success!
+                if build_successful and deployment_url:
+                    print(f"✅ Build successful on attempt {attempts}")
+                    print(f"   Deployment URL: {deployment_url}")
+
+                    # Clean up DevOps agent after success
+                    await self._cleanup_agent("devops")
+
                     return {
-                        'url': deployment_url or 'https://app.netlify.com/teams',
+                        'url': deployment_url,
                         'attempts': attempts,
                         'final_implementation': current_implementation,
                         'build_errors': all_build_errors
                     }
 
-                # Ask Frontend to fix the build error (via A2A)
-                print(f"\n🔧 Asking Frontend agent to fix build errors (A2A)...")
+                # Build failed - extract error details
+                if build_errors or not build_successful:
+                    error_summary = self._format_build_errors(build_errors)
+                    print(f"❌ Build failed on attempt {attempts}")
+                    print(f"   Errors: {error_summary[:200]}...")
+                    all_build_errors.extend(build_errors)
+
+                    # If this is the last attempt, give up
+                    if attempts >= self.max_build_retries:
+                        print(f"⚠️  Max retries ({self.max_build_retries}) reached - deployment failed")
+
+                        # Clean up DevOps agent
+                        await self._cleanup_agent("devops")
+
+                        return {
+                            'url': deployment_url or 'https://app.netlify.com/teams',
+                            'attempts': attempts,
+                            'final_implementation': current_implementation,
+                            'build_errors': all_build_errors
+                        }
+
+                    # Ask Frontend to fix the build errors (via A2A)
+                    print(f"\n🔧 Asking Frontend agent to fix build errors (A2A)...")
+
+                    # Format error details for Frontend
+                    error_description = self._format_errors_for_frontend(build_errors, error_summary)
+
+                    fix_result = await self._send_task_to_agent(
+                        agent_id=self.FRONTEND_ID,
+                        task_description=f"""Fix these build errors:
+
+{error_description}
+
+Original task: {user_prompt}
+Fix attempt: {attempts}/{self.max_build_retries}
+
+🔥 IMPORTANT - USE LOGFIRE FOR DEBUGGING:
+- FIRST query Logfire to see the exact error that occurred in production
+- Query: agent_name = "Frontend Developer" AND result_status = "error" AND timestamp > now() - 1h
+- Look for your previous implementation attempt traces
+- Extract exact error messages, stack traces, component names from telemetry
+- See what actually failed in the build (not assumptions!)
+- Reference specific trace IDs in your bug fix analysis
+
+Dashboard: https://logfire.pydantic.dev/
+Project: whatsapp-mcp
+
+Example Logfire debugging:
+1. Query: span.name contains "execute_task" AND error_message contains "TypeScript"
+2. Found trace: abc123 showing build failed with "Property 'title' does not exist"
+3. Extract: You used album.title but data has album.name
+4. Fix: Update component to use correct property names
+
+The DevOps agent attempted to deploy your code and found build errors.
+Please:
+1. Check Logfire for the deployment trace to understand what failed
+2. Analyze the exact error messages from production telemetry
+3. Fix ALL errors in the implementation
+4. Return the corrected implementation with all fixes applied
+
+Do NOT guess - use Logfire data to see what actually went wrong!""",
+                        metadata={
+                            "design_spec": design_spec,
+                            "previous_implementation": current_implementation,
+                            "build_errors": build_errors  # Pass structured error data
+                        },
+                        priority="high",
+                        cleanup_after=True,  # Clean up Frontend after fix
+                        notify_user=True
+                    )
+
+                    current_implementation = fix_result.get('implementation', current_implementation)
+                    print(f"✓ Frontend provided updated implementation via A2A")
+                else:
+                    # No clear success or failure - treat as error
+                    print(f"⚠️  Unclear deployment status on attempt {attempts}")
+                    all_build_errors.append("Unclear deployment status - no URL or build status")
+
+                    if attempts >= self.max_build_retries:
+                        await self._cleanup_agent("devops")
+                        return {
+                            'url': 'https://app.netlify.com/teams',
+                            'attempts': attempts,
+                            'final_implementation': current_implementation,
+                            'build_errors': all_build_errors
+                        }
+
+            except Exception as e:
+                print(f"❌ DevOps agent error on attempt {attempts}: {str(e)}")
+                all_build_errors.append(f"DevOps agent error: {str(e)}")
+
+                if attempts >= self.max_build_retries:
+                    await self._cleanup_agent("devops")
+                    return {
+                        'url': 'https://app.netlify.com/teams',
+                        'attempts': attempts,
+                        'final_implementation': current_implementation,
+                        'build_errors': all_build_errors
+                    }
+
+                # For errors, still try to get Frontend to fix the implementation
+                print(f"\n🔧 Asking Frontend to review and fix implementation after DevOps error...")
+
                 fix_result = await self._send_task_to_agent(
                     agent_id=self.FRONTEND_ID,
-                    task_description=f"Fix these build errors:\n\n{build_error}\n\nOriginal task: {user_prompt}",
-                    metadata={"design_spec": design_spec, "previous_implementation": current_implementation},
-                    priority="high"
+                    task_description=f"""The deployment failed with an error. Please review and fix the implementation.
+
+Error: {str(e)}
+
+Original task: {user_prompt}
+Fix attempt: {attempts}/{self.max_build_retries}
+
+🔥 CRITICAL - USE LOGFIRE TO DEBUG THIS DEPLOYMENT FAILURE:
+- Query Logfire to see what happened during the DevOps agent execution
+- Query: agent_name = "DevOps Engineer" AND result_status = "error" AND timestamp > now() - 30m
+- Look for the deployment attempt trace to understand the failure
+- Also check your own previous implementation traces
+- Extract exact error details from production telemetry
+
+Dashboard: https://logfire.pydantic.dev/
+Project: whatsapp-mcp
+
+The DevOps agent encountered an error during deployment.
+Please:
+1. Check Logfire for both DevOps and Frontend traces to understand the full context
+2. Review the implementation for common issues:
+   - All files are properly structured
+   - All dependencies are in package.json (including devDependencies)
+   - Build commands are correct
+   - No syntax errors in code
+   - TypeScript types are correct
+3. Fix ALL issues found
+4. Return the corrected implementation
+
+Use Logfire data to understand the root cause, don't just guess!""",
+                    metadata={
+                        "design_spec": design_spec,
+                        "previous_implementation": current_implementation
+                    },
+                    priority="high",
+                    cleanup_after=True
                 )
+
                 current_implementation = fix_result.get('implementation', current_implementation)
-                print(f"✓ Frontend provided updated implementation via A2A")
 
         # Should never reach here, but just in case
+        await self._cleanup_agent("devops")
         return {
             'url': 'https://app.netlify.com/teams',
             'attempts': attempts,
@@ -1632,91 +1887,63 @@ Be intelligent and context-aware. Don't just pattern match - actually understand
             'build_errors': all_build_errors
         }
 
-    async def _deploy_and_check_build(
-        self,
-        user_prompt: str,
-        implementation: Dict
-    ) -> tuple[Optional[str], Optional[str]]:
-        """
-        Deploy to Netlify and check for build errors
+    def _format_build_errors(self, build_errors: list) -> str:
+        """Format build errors into a readable summary"""
+        if not build_errors:
+            return "Unknown build error"
 
-        Returns:
-            (deployment_url, build_error)
-            - If successful: (url, None)
-            - If build failed: (None, error_message)
-        """
-        try:
-            files = implementation.get('files', [])
+        if isinstance(build_errors, list) and len(build_errors) > 0:
+            if isinstance(build_errors[0], dict):
+                # Structured error objects
+                summaries = []
+                for err in build_errors[:5]:  # Show first 5 errors
+                    error_type = err.get('type', 'unknown')
+                    error_msg = err.get('error_message', '')
+                    file = err.get('file', '')
+                    line = err.get('line', '')
+                    summaries.append(f"{error_type} in {file}:{line} - {error_msg[:100]}")
+                return "\n".join(summaries)
+            else:
+                # String errors
+                return "\n".join(str(e)[:200] for e in build_errors[:5])
 
-            if not files:
-                return (None, "No files to deploy")
+        return str(build_errors)[:500]
 
-            # Create deployment prompt
-            deployment_prompt = f"""Deploy this webapp to Netlify and report if there are any build errors.
+    def _format_errors_for_frontend(self, build_errors: list, error_summary: str) -> str:
+        """Format errors in a way that Frontend agent can understand and fix"""
+        if not build_errors:
+            return error_summary
 
-**Webapp Description:** {user_prompt}
+        formatted = "BUILD ERRORS FOUND:\n\n"
 
-**Files to Deploy:**
-{self._format_files_for_deployment(files)}
+        for i, err in enumerate(build_errors[:10], 1):  # Show up to 10 errors
+            if isinstance(err, dict):
+                formatted += f"Error #{i}:\n"
+                formatted += f"  Type: {err.get('type', 'unknown')}\n"
+                formatted += f"  File: {err.get('file', 'unknown')}\n"
+                formatted += f"  Line: {err.get('line', 'unknown')}\n"
+                formatted += f"  Message: {err.get('error_message', 'No message')}\n"
 
-**Task:**
-1. Create a new Netlify site (or use an existing one)
-2. Deploy these files to Netlify
-3. Check if the build succeeded or failed
-4. If the build failed, extract and return the complete error message
-5. Return the deployment URL if successful, or the error details if failed
+                if err.get('expected'):
+                    formatted += f"  Expected: {err.get('expected')}\n"
+                if err.get('received'):
+                    formatted += f"  Received: {err.get('received')}\n"
+                if err.get('fix_option_1'):
+                    formatted += f"  Fix suggestion: {err.get('fix_option_1')}\n"
 
-IMPORTANT: Check the build logs carefully for errors like:
-- Missing dependencies (Cannot find module 'X')
-- TypeScript errors
-- Import/export errors
-- Configuration issues
+                formatted += "\n"
+            else:
+                formatted += f"Error #{i}: {str(err)[:300]}\n\n"
 
-Respond in this format:
-- If successful: "SUCCESS: https://your-site.netlify.app"
-- If failed: "BUILD_ERROR: [full error message with all details]"
-"""
+        return formatted
 
-            response = await self.deployment_sdk.send_message(deployment_prompt)
-
-            # Check if build succeeded or failed
-            if "BUILD_ERROR:" in response:
-                # Extract error message
-                error_start = response.find("BUILD_ERROR:") + len("BUILD_ERROR:")
-                build_error = response[error_start:].strip()
-                return (None, build_error)
-
-            # Extract URL from successful deployment
-            import re
-            url_match = re.search(r'https://[a-zA-Z0-9-]+\.netlify\.app', response)
-            if url_match:
-                return (url_match.group(0), None)
-
-            # Check for dashboard URL (might mean pending deployment)
-            dashboard_match = re.search(r'https://app\.netlify\.com/[^\s]+', response)
-            if dashboard_match:
-                return (dashboard_match.group(0), None)
-
-            # Couldn't determine - treat as error
-            return (None, f"Could not determine build status from response: {response[:200]}")
-
-        except Exception as e:
-            return (None, f"Deployment exception: {str(e)}")
-
-    def _format_files_for_deployment(self, files: list) -> str:
-        """Format files list for deployment prompt"""
-        formatted = []
-        for file in files[:5]:  # Limit to first 5 files for prompt size
-            path = file.get('path', 'unknown')
-            content = file.get('content', '')
-            # Truncate content if too long
-            content_preview = content[:200] + "..." if len(content) > 200 else content
-            formatted.append(f"**{path}:**\n```\n{content_preview}\n```")
-
-        if len(files) > 5:
-            formatted.append(f"\n... and {len(files) - 5} more files")
-
-        return "\n\n".join(formatted)
+    # NOTE: Old deployment methods removed - now using DevOps agent directly via A2A
+    # The DevOps agent handles:
+    # - GitHub repository setup and push
+    # - netlify.toml generation with NPM_FLAGS
+    # - Netlify deployment
+    # - Build log verification
+    # See _deploy_with_retry() for the new implementation
 
     def _format_whatsapp_response(
         self,

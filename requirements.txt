@@ -46,3 +46,10 @@ aiohttp>=3.9.0
 
 # Type hints extensions
 typing-extensions>=4.14.1
+
+# ============================================
+# Telemetry & Observability (Phase 2)
+# ============================================
+
+# Logfire - Pydantic's observability platform
+logfire>=0.40.0

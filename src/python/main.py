@@ -26,7 +26,34 @@ from whatsapp_mcp.parser import WhatsAppWebhookParser
 # Load environment variables
 load_dotenv()
 
+# Initialize Logfire telemetry
+from utils.telemetry import (
+    initialize_logfire,
+    instrument_fastapi,
+    instrument_anthropic,
+    instrument_httpx,
+    log_event,
+    log_user_action,
+    log_error,
+    set_user_context,
+    track_session_event,
+    trace_operation,
+    measure_performance
+)
+
+# Initialize telemetry (auto-configures if LOGFIRE_TOKEN is set)
+initialize_logfire()
+
 app = FastAPI(title="WhatsApp MCP Service", version="1.0.0")
+
+# Instrument FastAPI for automatic tracing
+instrument_fastapi(app)
+
+# Instrument Anthropic SDK for LLM call tracking
+instrument_anthropic()
+
+# Instrument HTTP clients for external API tracking
+instrument_httpx()
 
 # Initialize WhatsApp client
 whatsapp_client = WhatsAppClient()
@@ -137,6 +164,14 @@ async def webhook_receive(request: Request):
         message_text = message_data.get('text', '')
         message_type = message_data.get('type')
 
+        # Log user action
+        log_user_action(
+            "message_received",
+            from_number,
+            message_type=message_type,
+            message_length=len(message_text)
+        )
+
         # Only process text messages for now
         if message_type != 'text' or not message_text:
             print(f"Ignoring non-text message type: {message_type}")
@@ -152,6 +187,7 @@ async def webhook_receive(request: Request):
 
     except Exception as e:
         print(f"Webhook error: {str(e)}")
+        log_error(e, "webhook_receive", body_keys=list(body.keys()) if 'body' in locals() else [])
         return {"status": "error", "message": str(e)}
 
 
@@ -160,25 +196,48 @@ async def process_whatsapp_message(phone_number: str, message: str):
     Process WhatsApp message with Agent Manager
     Spawns/retrieves agent and sends response back via WhatsApp
     """
-    try:
-        # Process with Agent Manager
-        response = await agent_manager.process_message(phone_number, message)
+    # Set user context for all traces in this scope
+    set_user_context(phone_number)
 
-        # Send response back via WhatsApp
-        whatsapp_client.send_message(phone_number, response)
-
-        print(f"✅ Sent response to {phone_number}")
-
-    except Exception as e:
-        print(f"❌ Error processing message for {phone_number}: {str(e)}")
-        # Send error message to user
+    with trace_operation(
+        "process_whatsapp_message",
+        message_length=len(message),
+        message_preview=message[:50]
+    ):
         try:
-            whatsapp_client.send_message(
+            # Measure agent processing time
+            with measure_performance("agent_processing") as perf:
+                # Process with Agent Manager
+                response = await agent_manager.process_message(phone_number, message)
+                perf.set_metadata(response_length=len(response))
+
+            # Send response back via WhatsApp
+            with measure_performance("whatsapp_send"):
+                whatsapp_client.send_message(phone_number, response)
+
+            print(f"✅ Sent response to {phone_number}")
+
+            # Log successful interaction
+            log_user_action(
+                "message_processed",
                 phone_number,
-                "Sorry, I encountered an error processing your message. Please try again."
+                message_length=len(message),
+                response_length=len(response)
             )
-        except Exception as send_error:
-            print(f"❌ Failed to send error message: {str(send_error)}")
+
+        except Exception as e:
+            print(f"❌ Error processing message for {phone_number}: {str(e)}")
+            log_error(e, "process_whatsapp_message", message_length=len(message))
+
+            # Send error message to user
+            try:
+                whatsapp_client.send_message(
+                    phone_number,
+                    "Sorry, I encountered an error processing your message. Please try again."
+                )
+            except Exception as send_error:
+                print(f"❌ Failed to send error message: {str(send_error)}")
+                log_error(send_error, "whatsapp_error_send")
 
 
 async def periodic_cleanup():

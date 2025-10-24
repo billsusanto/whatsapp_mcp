@@ -28,17 +28,48 @@ class WhatsAppClient:
 
         print(f"WhatsApp client initialized for phone ID: {self.phone_number_id}")
 
+    def _format_phone_number(self, phone: str) -> str:
+        """
+        Ensure phone number is in proper format for WhatsApp API
+
+        Args:
+            phone: Phone number (with or without +)
+
+        Returns:
+            Formatted phone number
+        """
+        # Remove any whitespace or special characters except +
+        phone = ''.join(c for c in phone if c.isdigit() or c == '+')
+
+        # Ensure it doesn't start with + if it's already there
+        # WhatsApp API accepts numbers without + prefix
+        if phone.startswith('+'):
+            phone = phone[1:]
+
+        return phone
+
     def send_message(self, to: str, text: str) -> Dict:
         """
         Send a text message to a WhatsApp user
 
         Args:
-            to: Phone number in international format (e.g., "+1234567890")
+            to: Phone number in international format (e.g., "+1234567890" or "1234567890")
             text: Message text to send
 
         Returns:
             API response dict
         """
+        # Format phone number
+        to = self._format_phone_number(to)
+
+        # Validate message text
+        if not text or not text.strip():
+            raise ValueError("Message text cannot be empty")
+
+        # WhatsApp has a character limit
+        if len(text) > 4096:
+            raise ValueError(f"Message text too long ({len(text)} chars). Maximum is 4096 characters")
+
         payload = {
             "messaging_product": "whatsapp",
             "to": to,
@@ -53,6 +84,7 @@ class WhatsAppClient:
 
         try:
             print(f"Sending message to {to}: {text[:50]}...")
+            print(f"DEBUG - Payload: {payload}")
             response = requests.post(self.messages_url, json=payload, headers=headers)
             response.raise_for_status()
 
@@ -61,9 +93,21 @@ class WhatsAppClient:
             return result
 
         except requests.exceptions.HTTPError as e:
-            error_msg = f"WhatsApp API error: {e.response.text if e.response else str(e)}"
+            # Extract detailed error information
+            error_details = {
+                'status_code': e.response.status_code if e.response else 'Unknown',
+                'response_body': e.response.text if e.response else 'No response',
+                'url': str(e.request.url) if e.request else 'Unknown',
+            }
+
+            error_msg = f"WhatsApp API error: {str(e)}"
             print(f"❌ {error_msg}")
-            raise Exception(error_msg)
+            print(f"❌ Status Code: {error_details['status_code']}")
+            print(f"❌ Response Body: {error_details['response_body']}")
+            print(f"❌ Request URL: {error_details['url']}")
+            print(f"❌ Payload sent: {payload}")
+
+            raise Exception(f"{error_msg}\nDetails: {error_details['response_body']}")
 
         except Exception as e:
             print(f"❌ Error sending message: {str(e)}")
