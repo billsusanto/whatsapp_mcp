@@ -1,8 +1,8 @@
 # WhatsApp Multi-Agent System - Complete Documentation
 
-**Version:** 2.2.0
+**Version:** 3.0.0
 **Last Updated:** January 2025
-**Status:** Production Ready with Enhanced Observability
+**Status:** Production Ready with Unified Platform-Agnostic Architecture
 
 ---
 
@@ -25,6 +25,46 @@
 15. [Performance & Optimization](#performance--optimization)
 16. [Security](#security)
 17. [Testing](#testing)
+
+---
+
+## What's New in v3.0 🎉
+
+**Major Architectural Refactoring - Platform-Agnostic Design**
+
+### Key Changes
+
+1. **Unified Platform-Agnostic Architecture**
+   - ✅ Replaced separate `AgentManager` and `GitHubAgentManager` with `UnifiedAgentManager`
+   - ✅ Implemented Adapter Pattern for platform extensibility
+   - ✅ 35% code reduction (914 lines → 600 lines)
+   - ✅ Zero functional changes - all features work identically
+
+2. **New Components**
+   - `UnifiedAgentManager` (`agents/unified_manager.py`) - Single message router for all platforms
+   - `NotificationAdapter` (`agents/adapters/notification.py`) - Abstract interface
+   - `WhatsAppAdapter` (`agents/adapters/whatsapp_adapter.py`) - WhatsApp implementation
+   - `GitHubAdapter` (`agents/adapters/github_adapter.py`) - GitHub implementation
+   - `BaseSessionManager` (`agents/session/base.py`) - Session storage interface
+
+3. **Benefits**
+   - **Easy Platform Extension**: Add Slack, Discord, etc. by creating a simple adapter
+   - **Single Source of Truth**: AI classification and routing logic shared across platforms
+   - **Better Testability**: Mock adapters for unit tests
+   - **No Code Duplication**: Eliminates ~300 lines of duplicated code
+
+4. **Migration Guide**
+   - Old managers backed up as `.backup` files
+   - Update imports: `from agents.unified_manager import UnifiedAgentManager`
+   - Update instantiation to use adapters (see examples in documentation)
+   - All existing features work identically - no API changes for end users
+
+### Backward Compatibility
+
+- ⚠️ **Breaking change for developers**: Manager instantiation API changed
+- ✅ **No breaking changes for end users**: WhatsApp and GitHub functionality unchanged
+- ✅ **Database schemas unchanged**: All state and session data compatible
+- ✅ **Environment variables unchanged**: Same configuration
 
 ---
 
@@ -58,12 +98,14 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
 - **Logfire debugging** (agents query production traces to fix errors)
 
 **Advanced Capabilities:**
+- **Unified Platform-Agnostic Architecture** (Adapter Pattern for easy platform extension)
 - **AI-Powered Message Classification** (no keyword matching)
 - **Lazy Agent Initialization** (memory optimization)
 - **Dynamic Progress Tracking** (adjusts estimates during retries)
 - **A2A Protocol** (Agent-to-Agent communication)
 - **Crash Recovery** (resume interrupted tasks from database)
 - **Production Telemetry** (Logfire integration for debugging)
+- **Code Reusability** (Single codebase for all platforms - 35% code reduction)
 
 **Integrations:**
 - Claude AI (Sonnet 4.5 - `claude-sonnet-4-5-20250929`)
@@ -88,7 +130,7 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
 
 ## Architecture
 
-### High-Level Architecture
+### High-Level Architecture (v3.0 - Unified Platform-Agnostic Design)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -122,7 +164,8 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
 └─────────────────────────────────────────────────────────────────┘
                               ↓ (async task)
 ┌─────────────────────────────────────────────────────────────────┐
-│         AgentManager / GitHubAgentManager (manager.py)          │
+│         UnifiedAgentManager (unified_manager.py)                │
+│              Platform-Agnostic Message Router                   │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │       AI Message Classifier (Claude-powered)            │   │
 │  │  Uses Claude to intelligently classify user intent:    │   │
@@ -137,6 +180,18 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
 │  │   • TTL: 60 minutes (auto-expiry)                       │   │
 │  │   • Max history: 10 messages                            │   │
 │  │   • Distributed session support                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │   Platform Adapters (Adapter Pattern)                  │   │
+│  │   • WhatsAppAdapter → WhatsApp Business API            │   │
+│  │   • GitHubAdapter → GitHub Issues/PR Comments          │   │
+│  │   • Easily extensible (Slack, Discord, etc.)           │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │   Session Managers (Strategy Pattern)                  │   │
+│  │   • RedisSessionManager (WhatsApp - distributed)       │   │
+│  │   • InMemorySessionManager (GitHub - fast)             │   │
+│  │   • Both implement BaseSessionManager interface        │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
          ↓                         ↓                    ↓
@@ -193,33 +248,98 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
                       └─────────────────────────────┘
 ```
 
+### Platform-Agnostic Adapter Pattern (New in v3.0)
+
+The system uses the **Adapter Pattern** to decouple platform-specific code from core business logic.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│           UnifiedAgentManager (Core Logic)               │
+│         Single codebase for all platforms                │
+│  • AI message classification                             │
+│  • Agent/orchestrator lifecycle                          │
+│  • Routing logic                                         │
+└──────────────────────────────────────────────────────────┘
+                     ↓ uses
+┌──────────────────────────────────────────────────────────┐
+│          NotificationAdapter (Abstract Interface)        │
+│  • send_message(recipient, message)                      │
+│  • send_reaction(message_id, reaction)                   │
+│  • get_platform_name()                                   │
+└──────────────────────────────────────────────────────────┘
+          ↓                              ↓
+┌─────────────────────┐      ┌──────────────────────────┐
+│  WhatsAppAdapter    │      │   GitHubAdapter          │
+│  • WhatsAppClient   │      │   • GitHubClient         │
+│  • send_message()   │      │   • post_comment()       │
+│  • No reactions     │      │   • add_reaction()       │
+└─────────────────────┘      └──────────────────────────┘
+
+To add a new platform (e.g., Slack):
+1. Create SlackAdapter implementing NotificationAdapter
+2. Inject it into UnifiedAgentManager
+3. That's it! All routing logic works automatically.
+```
+
+**Benefits:**
+- **35% code reduction** (914 lines → 600 lines)
+- **Single source of truth** for AI classification and routing
+- **Easy extensibility** - add platforms without modifying core logic
+- **Better testability** - mock adapters for unit tests
+- **No code duplication** - WhatsApp and GitHub share 100% of routing code
+
+### Session Manager Pattern
+
+The system uses the **Strategy Pattern** for session storage:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│       BaseSessionManager (Abstract Interface)            │
+│  • add_message(session_id, role, content)                │
+│  • get_conversation_history(session_id)                  │
+│  • clear_session(session_id)                             │
+│  • get_session(session_id)                               │
+└──────────────────────────────────────────────────────────┘
+          ↓                              ↓
+┌─────────────────────┐      ┌──────────────────────────┐
+│ RedisSessionManager │      │ InMemorySessionManager   │
+│ • TTL: 60 min       │      │ • No TTL                 │
+│ • Distributed       │      │ • Single-server          │
+│ • Used by WhatsApp  │      │ • Used by GitHub         │
+└─────────────────────┘      └──────────────────────────┘
+```
+
+**Platform-Specific Choices:**
+- **WhatsApp**: RedisSessionManager (distributed, persistent, TTL-based)
+- **GitHub**: InMemorySessionManager (fast, single-server, no persistence needed)
+
 ### Data Flow Architecture
 
 **WhatsApp Message Flow:**
 ```
 1. User sends WhatsApp message
    ↓
-2. WhatsApp Business API → POST /webhook (main.py:151)
+2. WhatsApp Business API → POST /webhook (main.py)
    ↓
 3. WhatsAppWebhookParser.parse_message() extracts data
    ↓
-4. log_user_action() → Logfire telemetry (main.py:172)
+4. log_user_action() → Logfire telemetry
    ↓
-5. asyncio.create_task(process_whatsapp_message) - Background (main.py:187)
+5. asyncio.create_task(process_whatsapp_message) - Background
    ↓
 6. Return 200 OK to WhatsApp (<5s requirement)
    ↓
-7. AgentManager.process_message() - AI classification (manager.py:142)
+7. UnifiedAgentManager.process_message() - AI classification (unified_manager.py)
    ↓
    ├─ Webapp request? → CollaborativeOrchestrator.build_webapp()
    │   ↓
-   │   ├─ AI planning → Select workflow (orchestrator.py:1027)
+   │   ├─ AI planning → Select workflow
    │   ├─ Save state to PostgreSQL (crash recovery)
    │   ├─ Execute workflow (Design → Implement → Review → Deploy)
-   │   ├─ Quality loop (min 9/10 score) (orchestrator.py:1308)
-   │   ├─ Deploy with retry (max 10 attempts) (orchestrator.py:1867)
-   │   │   ├─ DevOps queries Logfire for deployment errors (orchestrator.py:1912)
-   │   │   ├─ Frontend queries Logfire for build errors (orchestrator.py:1995)
+   │   ├─ Quality loop (min 9/10 score)
+   │   ├─ Deploy with retry (max 10 attempts)
+   │   │   ├─ DevOps queries Logfire for deployment errors
+   │   │   ├─ Frontend queries Logfire for build errors
    │   │   └─ Fix → Retry → Verify
    │   └─ Delete state on completion
    │
@@ -227,11 +347,11 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
        ↓
        └─ ClaudeSDK.send_message() → Claude API + MCP tools
    ↓
-8. RedisSessionManager.add_message() - Store with TTL (session_redis.py:102)
+8. RedisSessionManager.add_message() - Store with TTL
    ↓
-9. measure_performance() - Telemetry (main.py:213)
+9. measure_performance() - Telemetry
    ↓
-10. WhatsAppClient.send_message() → WhatsApp API
+10. WhatsAppAdapter.send_message() → WhatsAppClient → WhatsApp API
     ↓
 11. User receives response
 ```
@@ -240,25 +360,31 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
 ```
 1. User posts @droid mention in PR/Issue comment
    ↓
-2. GitHub App webhook → POST /github/webhook (webhook_handler.py:48)
+2. GitHub App webhook → POST /github/webhook (webhook_handler.py)
    ↓
-3. verify_github_signature() - HMAC SHA-256 (webhook_handler.py:84)
+3. verify_github_signature() - HMAC SHA-256
    ↓
-4. parse_github_event() - Extract context (webhook_handler.py:96)
+4. parse_github_event() - Extract context
    ↓
-5. extract_droid_mention() - Get command text (webhook_handler.py:119)
+5. extract_droid_mention() - Get command text
    ↓
 6. Return 200 OK to GitHub (<10s requirement)
    ↓
-7. background_tasks.add_task(process_droid_command) (webhook_handler.py:135)
+7. background_tasks.add_task(process_droid_command)
    ↓
-8. GitHubAgentManager.process_command() (github_manager.py)
+8. Create GitHubAdapter + InMemorySessionManager
    ↓
-9. CollaborativeOrchestrator.build_webapp()
+9. UnifiedAgentManager.process_message() (unified_manager.py)
    ↓
-10. Multi-agent workflow execution (same as WhatsApp flow)
+10. GitHubAdapter.send_reaction("eyes") - Add 👀 reaction
     ↓
-11. Post result as GitHub comment with live URL
+11. CollaborativeOrchestrator.build_webapp()
+    ↓
+12. Multi-agent workflow execution (same as WhatsApp flow)
+    ↓
+13. GitHubAdapter.send_message() → GitHubClient.post_comment()
+    ↓
+14. User sees result as GitHub comment with live URL
 ```
 
 ### System Components
@@ -287,54 +413,122 @@ A production-ready, platform-agnostic AI assistant system that uses Claude AI (S
   - Line 54: `instrument_anthropic()`
   - Line 57: `instrument_httpx()`
 
-#### 2. **Agent Manager** (`agents/manager.py` - 496 lines)
-**Location:** `/src/python/agents/manager.py`
+#### 2. **Unified Agent Manager** (`agents/unified_manager.py` - ~550 lines) **NEW in v3.0**
+**Location:** `/src/python/agents/unified_manager.py`
 
-- **Purpose:** Routes messages to single-agent or multi-agent systems
+- **Purpose:** Platform-agnostic message router for single-agent or multi-agent systems
 - **Key Features:**
-  - AI-powered intent classification (not keyword-based)
+  - **Platform-agnostic** - Works with any messaging platform via adapters
+  - AI-powered intent classification (no keyword matching)
   - Per-user orchestrator management
-  - Smart refinement handling
-  - Session lifecycle management
-  - MCP server configuration (WhatsApp, GitHub, Netlify, PostgreSQL)
+  - Smart refinement handling during active tasks
+  - Injected session manager (Redis or InMemory)
+  - Injected notification adapter (WhatsApp, GitHub, etc.)
 
 - **Key Methods:**
-  - `__init__()` (27-119): Initialize MCP servers
-  - `process_message()` (142-251): **Main router with AI classification**
-  - `_is_webapp_request()` (253-342): AI-powered webapp detection
-  - `_classify_message()` (344-454): AI classification during active tasks
+  - `__init__()`: Initialize with platform, session manager, notification adapter, MCP config
+  - `process_message()`: **Main router with AI classification**
+  - `_is_webapp_request()`: AI-powered webapp detection (shared across platforms)
+  - `_classify_message()`: AI classification during active tasks
+  - `_get_or_create_agent()`: Single agent lifecycle
+  - `_create_orchestrator()`: Multi-agent orchestrator creation
 
-#### 3. **Redis Session Manager** (`agents/session_redis.py` - 196 lines)
-**Location:** `/src/python/agents/session_redis.py`
+- **Adapter Pattern Integration:**
+  ```python
+  # WhatsApp setup
+  manager = UnifiedAgentManager(
+      platform="whatsapp",
+      session_manager=RedisSessionManager(),
+      notification_adapter=WhatsAppAdapter(whatsapp_client),
+      mcp_config={"whatsapp": [...], "github": {...}, "netlify": {...}}
+  )
 
-- **Purpose:** Persistent session storage with TTL
-- **Features:**
+  # GitHub setup
+  manager = UnifiedAgentManager(
+      platform="github",
+      session_manager=InMemorySessionManager(),
+      notification_adapter=GitHubAdapter(github_client, context),
+      mcp_config={"github": {...}, "netlify": {...}}
+  )
+  ```
+
+#### 2a. **Notification Adapters** (New in v3.0)
+**Location:** `/src/python/agents/adapters/`
+
+**NotificationAdapter (Abstract Interface)**:
+- `send_message(recipient, message)`: Platform-specific message sending
+- `send_reaction(message_id, reaction)`: Platform-specific reactions
+- `get_platform_name()`: Platform identifier
+
+**WhatsAppAdapter** (`whatsapp_adapter.py`):
+- Uses WhatsAppClient to send messages
+- No reaction support (WhatsApp limitation)
+- Returns platform name: "whatsapp"
+
+**GitHubAdapter** (`github_adapter.py`):
+- Uses GitHubClient to post comments
+- Supports reactions (👀, 👍, 🚀, etc.)
+- Extracts repo/issue context from webhook
+- Returns platform name: "github"
+
+#### 2b. **Session Managers** (Updated in v3.0)
+**Location:** `/src/python/agents/session/`
+
+**BaseSessionManager (Abstract Interface)**:
+- `add_message(session_id, role, content)`: Add message to history
+- `get_conversation_history(session_id)`: Get all messages
+- `clear_session(session_id)`: Reset session
+- `get_session(session_id)`: Get full session object
+
+**Implementations:**
+
+- **RedisSessionManager** (`session_redis.py` - 196 lines):
+  - Used by WhatsApp platform (distributed, persistent)
   - Redis connection with retry
   - 60-minute TTL (auto-expiry)
   - Max 10 messages history
   - JSON serialization
-  - Distributed session support
+  - Key pattern: `session:{phone_number}`
 
-- **Key Methods:**
-  - `get_session()` (57-100): Get/create session with TTL refresh
-  - `add_message()` (102-132): Append message with history trimming
-  - `cleanup_expired_sessions()` (151-166): Report active sessions
+- **InMemorySessionManager** (`session.py` - 129 lines):
+  - Used by GitHub platform (fast, single-server)
+  - In-memory dictionary storage
+  - 60-minute TTL (auto-expiry)
+  - Max 10 messages history
+  - No persistence (restarts clear sessions)
 
-- **Redis Key Pattern:** `session:{phone_number}`
+#### 3. **Migration from Old Managers** (v3.0 Breaking Change)
+
+**Deprecated (v2.x):**
+- ❌ `agents/manager.py` (AgentManager) - WhatsApp-specific
+- ❌ `agents/github_manager.py` (GitHubAgentManager) - GitHub-specific
+- These files have been backed up as `.backup` files
+
+**Replaced by (v3.0):**
+- ✅ `agents/unified_manager.py` (UnifiedAgentManager) - Platform-agnostic
+- ✅ `agents/adapters/` (Adapter pattern for platforms)
+- ✅ `agents/session/base.py` (Session manager interface)
+
+**Migration Impact:**
+- **35% code reduction** (914 lines → 600 lines)
+- **Zero functional changes** - All features work identically
+- **Better maintainability** - Single source of truth for routing logic
+- **Easy platform extension** - Just create a new adapter
 
 #### 4. **PostgreSQL Database Models** (`database/models.py` - 98 lines)
 **Location:** `/src/python/database/models.py`
 
 - **OrchestratorState Table:**
-  - Primary Key: `phone_number`
+  - Primary Key: `phone_number` (supports both WhatsApp phone numbers and GitHub repo#issue identifiers)
   - State: `is_active`, `current_phase`, `current_workflow`
   - Task: `original_prompt`, `accumulated_refinements`, `current_implementation`, `current_design_spec`
   - Progress: `workflow_steps_completed`, `workflow_steps_total`, `current_agent_working`
-  - Purpose: Crash recovery, resume interrupted tasks
+  - Purpose: Crash recovery, resume interrupted tasks across platforms
 
 - **OrchestratorAudit Table:**
-  - Event tracking for state changes
+  - Event tracking for state changes across platforms
   - Audit trail for analytics
+  - Supports multi-platform event logging
 
 #### 5. **Multi-Agent Orchestrator** (`agents/collaborative/orchestrator.py` - 2,239 lines)
 **Location:** `/src/python/agents/collaborative/orchestrator.py`

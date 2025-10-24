@@ -6,13 +6,17 @@ Maintains the same interface as the original SessionManager for compatibility.
 """
 
 import os
+import sys
 import json
 import redis
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from agents.session.base import BaseSessionManager
 
-class RedisSessionManager:
+
+class RedisSessionManager(BaseSessionManager):
     """Manages conversation sessions using Redis for persistence"""
 
     def __init__(self, ttl_minutes: int = 60, max_history: int = 10):

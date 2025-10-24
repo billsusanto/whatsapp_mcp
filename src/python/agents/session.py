@@ -6,9 +6,14 @@ Tracks conversation history per WhatsApp user for multi-turn conversations
 
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+from agents.session.base import BaseSessionManager
 
 
-class SessionManager:
+class SessionManager(BaseSessionManager):
     """Manages conversation sessions for multiple users"""
 
     def __init__(self, ttl_minutes: int = 30, max_history: int = 20):

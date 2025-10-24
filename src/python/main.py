@@ -19,7 +19,9 @@ from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(__file__))
 
-from agents.manager import AgentManager
+from agents.unified_manager import UnifiedAgentManager
+from agents.adapters.whatsapp_adapter import WhatsAppAdapter
+from agents.session_redis import RedisSessionManager
 from whatsapp_mcp.client import WhatsAppClient
 from whatsapp_mcp.parser import WhatsAppWebhookParser
 from github_bot import router as github_router
@@ -82,13 +84,56 @@ async def whatsapp_send_tool(args: dict[str, Any]) -> dict[str, Any]:
             "isError": True
         }
 
-# Initialize Agent Manager with available MCP servers
+# Build MCP configuration
+mcp_config = {}
+
+# Add WhatsApp MCP tools
+mcp_config["whatsapp"] = [whatsapp_send_tool]
+
+# Add GitHub MCP if enabled
 enable_github = os.getenv("ENABLE_GITHUB_MCP", "false").lower() == "true"
+if enable_github:
+    try:
+        from github_mcp.server import create_github_mcp_config
+        mcp_config["github"] = create_github_mcp_config()
+        print("✅ GitHub MCP configured")
+    except Exception as e:
+        print(f"⚠️  GitHub MCP not available: {e}")
+
+# Add Netlify MCP if enabled
 enable_netlify = os.getenv("ENABLE_NETLIFY_MCP", "false").lower() == "true"
-agent_manager = AgentManager(
-    whatsapp_mcp_tools=[whatsapp_send_tool],
-    enable_github=enable_github,
-    enable_netlify=enable_netlify
+if enable_netlify:
+    try:
+        from netlify_mcp.server import create_netlify_mcp_config
+        mcp_config["netlify"] = create_netlify_mcp_config()
+        print("✅ Netlify MCP configured")
+    except Exception as e:
+        print(f"⚠️  Netlify MCP not available: {e}")
+
+# Add PostgreSQL MCP if enabled
+try:
+    from utils.pgsql_mcp_helper import get_postgres_mcp_config, is_postgres_mcp_enabled
+    if is_postgres_mcp_enabled():
+        postgres_config = get_postgres_mcp_config()
+        if postgres_config:
+            mcp_config["postgres"] = postgres_config
+            print("✅ PostgreSQL MCP configured")
+except Exception as e:
+    print(f"⚠️  PostgreSQL MCP not available: {e}")
+
+# Initialize WhatsApp adapter
+whatsapp_adapter = WhatsAppAdapter(whatsapp_client)
+
+# Initialize Redis session manager
+session_manager = RedisSessionManager(ttl_minutes=60, max_history=10)
+
+# Initialize Unified Agent Manager
+agent_manager = UnifiedAgentManager(
+    platform="whatsapp",
+    session_manager=session_manager,
+    notification_adapter=whatsapp_adapter,
+    mcp_config=mcp_config,
+    enable_multi_agent=enable_netlify
 )
 
 # Include GitHub bot webhook routes
@@ -120,14 +165,16 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "whatsapp-mcp",
+        "platform": agent_manager.platform,
         "api_key_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
         "whatsapp_configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN")),
-        "github_mcp_enabled": agent_manager.enable_github,
+        "github_mcp_enabled": "github" in mcp_config,
         "github_token_configured": bool(os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")),
-        "netlify_mcp_enabled": agent_manager.enable_netlify,
+        "netlify_mcp_enabled": "netlify" in mcp_config,
         "netlify_token_configured": bool(os.getenv("NETLIFY_PERSONAL_ACCESS_TOKEN")),
+        "multi_agent_enabled": agent_manager.multi_agent_enabled,
         "active_agents": agent_manager.get_active_agents_count(),
-        "available_mcp_servers": list(agent_manager.available_mcp_servers.keys())
+        "available_mcp_servers": list(mcp_config.keys())
     }
 
 
@@ -323,10 +370,12 @@ async def startup_event():
     print("=" * 60)
     print("🚀 WhatsApp MCP Service Starting...")
     print("=" * 60)
+    print(f"Platform: {agent_manager.platform}")
     print(f"ANTHROPIC_API_KEY configured: {bool(os.getenv('ANTHROPIC_API_KEY'))}")
     print(f"WHATSAPP_ACCESS_TOKEN configured: {bool(os.getenv('WHATSAPP_ACCESS_TOKEN'))}")
     print(f"GITHUB_PERSONAL_ACCESS_TOKEN configured: {bool(os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'))}")
-    print(f"\nAvailable MCP servers: {list(agent_manager.available_mcp_servers.keys())}")
+    print(f"Multi-agent enabled: {agent_manager.multi_agent_enabled}")
+    print(f"\nAvailable MCP servers: {list(mcp_config.keys())}")
     print("=" * 60)
 
     # Start background task for periodic cleanup

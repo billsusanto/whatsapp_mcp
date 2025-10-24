@@ -163,19 +163,77 @@ async def process_droid_command(command: str, context: Dict[str, Any]):
         logger.info(f"Starting command processing: {command[:50]}...")
 
         # Import here to avoid circular imports
-        from agents.github_manager import GitHubAgentManager
+        from agents.unified_manager import UnifiedAgentManager
+        from agents.adapters.github_adapter import GitHubAdapter
+        from agents.session import SessionManager
+        from github_bot.client import GitHubClient
 
         # Create session key (e.g., "owner/repo#42")
-        session_key = f"{context['repository']['full_name']}#{context.get('pull_request', context.get('issue', {})).get('number')}"
+        repo_full_name = context['repository']['full_name']
+        issue_number = context.get('pull_request', context.get('issue', {})).get('number')
+        session_key = f"{repo_full_name}#{issue_number}"
 
-        # Create/get GitHub agent manager
-        manager = GitHubAgentManager(
-            session_key=session_key,
-            context=context
+        # Build MCP configuration for GitHub platform
+        mcp_config = {}
+
+        # Add GitHub MCP
+        enable_github = os.getenv("ENABLE_GITHUB_MCP", "false").lower() == "true"
+        if enable_github:
+            try:
+                import sys
+                sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                from github_mcp.server import create_github_mcp_config
+                mcp_config["github"] = create_github_mcp_config()
+            except Exception as e:
+                logger.warning(f"GitHub MCP not available: {e}")
+
+        # Add Netlify MCP (required for deployments)
+        enable_netlify = os.getenv("ENABLE_NETLIFY_MCP", "false").lower() == "true"
+        if enable_netlify:
+            try:
+                import sys
+                sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+                from netlify_mcp.server import create_netlify_mcp_config
+                mcp_config["netlify"] = create_netlify_mcp_config()
+            except Exception as e:
+                logger.warning(f"Netlify MCP not available: {e}")
+
+        # Add PostgreSQL MCP
+        try:
+            import sys
+            sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+            from utils.pgsql_mcp_helper import get_postgres_mcp_config, is_postgres_mcp_enabled
+            if is_postgres_mcp_enabled():
+                postgres_config = get_postgres_mcp_config()
+                if postgres_config:
+                    mcp_config["postgres"] = postgres_config
+        except Exception as e:
+            logger.warning(f"PostgreSQL MCP not available: {e}")
+
+        # Create GitHub adapter
+        github_client = GitHubClient()
+        github_adapter = GitHubAdapter(github_client, context)
+
+        # Create session manager (in-memory for GitHub)
+        session_manager = SessionManager(ttl_minutes=60, max_history=10)
+
+        # Create unified manager
+        manager = UnifiedAgentManager(
+            platform="github",
+            session_manager=session_manager,
+            notification_adapter=github_adapter,
+            mcp_config=mcp_config,
+            enable_multi_agent=enable_netlify,
+            platform_context=context
         )
 
+        # Add 👀 reaction to acknowledge
+        comment_id = context.get('comment', {}).get('id')
+        if comment_id:
+            await github_adapter.send_reaction(str(comment_id), "eyes")
+
         # Process the command
-        await manager.process_command(command)
+        response = await manager.process_message(session_key, command, context)
 
         logger.info(f"Command processing completed for {session_key}")
 

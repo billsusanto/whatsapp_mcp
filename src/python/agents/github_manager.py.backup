@@ -20,6 +20,61 @@ from github_bot.utils import format_github_comment
 logger = logging.getLogger(__name__)
 
 
+class InMemorySessionManager:
+    """
+    Simple in-memory session manager for GitHub agents.
+
+    Unlike WhatsApp which uses Redis, GitHub sessions are ephemeral
+    and stored in memory within the GitHubAgentManager.
+    """
+
+    def __init__(self):
+        """Initialize in-memory storage for conversation history."""
+        self.conversations = {}
+
+    def add_message(self, session_key: str, role: str, content: str):
+        """
+        Add a message to conversation history.
+
+        Args:
+            session_key: GitHub session key (repo#issue)
+            role: Message role ("user" or "assistant")
+            content: Message content
+        """
+        if session_key not in self.conversations:
+            self.conversations[session_key] = []
+
+        self.conversations[session_key].append({
+            "role": role,
+            "content": content
+        })
+
+    def get_conversation_history(self, session_key: str, max_messages: int = 10):
+        """
+        Get conversation history for a session.
+
+        Args:
+            session_key: GitHub session key (repo#issue)
+            max_messages: Maximum number of messages to return
+
+        Returns:
+            List of message dicts with role and content
+        """
+        history = self.conversations.get(session_key, [])
+        # Return last N messages
+        return history[-max_messages:] if len(history) > max_messages else history
+
+    def clear_conversation(self, session_key: str):
+        """
+        Clear conversation history for a session.
+
+        Args:
+            session_key: GitHub session key (repo#issue)
+        """
+        if session_key in self.conversations:
+            del self.conversations[session_key]
+
+
 class GitHubAgentManager:
     """
     Manages agent sessions for GitHub contexts.
@@ -30,6 +85,9 @@ class GitHubAgentManager:
 
     # Class-level session store (shared across all instances)
     _sessions: Dict[str, Dict[str, Any]] = {}
+
+    # Class-level session manager for conversational agents
+    _session_manager: Optional[InMemorySessionManager] = None
 
     def __init__(self, session_key: str, context: Dict[str, Any]):
         """
@@ -42,6 +100,10 @@ class GitHubAgentManager:
         self.session_key = session_key
         self.context = context
         self.github_client = get_github_client()
+
+        # Initialize class-level session manager if not already created
+        if GitHubAgentManager._session_manager is None:
+            GitHubAgentManager._session_manager = InMemorySessionManager()
 
         logger.info(f"GitHubAgentManager initialized for {session_key}")
 
@@ -172,7 +234,7 @@ class GitHubAgentManager:
 
         agent = Agent(
             phone_number=self.session_key,  # Use session_key as identifier
-            session_manager=None,  # GitHub doesn't use Redis session manager
+            session_manager=self._session_manager,  # Use class-level session manager
             available_mcp_servers=available_mcp_servers
         )
 
