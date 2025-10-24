@@ -70,7 +70,7 @@ class GitHubAgentManager:
             )
 
             # Handle as refinement
-            await orchestrator.handle_user_message(command)
+            await orchestrator.handle_refinement(command)
 
         else:
             # New session - start fresh workflow
@@ -97,7 +97,7 @@ class GitHubAgentManager:
             )
 
             # Start workflow
-            await orchestrator.start_workflow(command)
+            await orchestrator.build_webapp(command)
 
             # Mark session as completed
             self._sessions[self.session_key]["status"] = "completed"

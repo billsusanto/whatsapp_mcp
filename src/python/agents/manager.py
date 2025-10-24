@@ -255,9 +255,13 @@ Please let me know!""".format(active_orchestrator.original_prompt[:100])
 
             try:
                 # Create new orchestrator for this user
+                # Create a callback that binds the phone_number
+                async def send_callback(message: str):
+                    await self.send_whatsapp_message(phone_number, message)
+
                 orchestrator = CollaborativeOrchestrator(
                     user_id=phone_number,
-                    send_message_callback=self.send_whatsapp_message,
+                    send_message_callback=send_callback,
                     platform="whatsapp",
                     available_mcp_servers=self.available_mcp_servers
                 )
