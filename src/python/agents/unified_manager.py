@@ -422,7 +422,7 @@ Classify this message into ONE of these categories:
         self,
         user_id: str,
         context: Dict[str, Any]
-    ) -> CollaborativeOrchestrator:
+    ) -> Any:
         """
         Create a multi-agent orchestrator for a user.
 

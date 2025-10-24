@@ -1,16 +1,13 @@
 """
-Conversation Session Management
+In-Memory Session Management
 
-Tracks conversation history per WhatsApp user for multi-turn conversations
+Tracks conversation history per user for multi-turn conversations.
+Used by GitHub platform (fast, single-server, no persistence).
 """
 
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-
-from agents.session.base import BaseSessionManager
+from .base import BaseSessionManager
 
 
 class SessionManager(BaseSessionManager):

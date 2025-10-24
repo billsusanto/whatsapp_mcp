@@ -5,5 +5,6 @@ This module provides session storage interfaces and implementations.
 """
 
 from .base import BaseSessionManager
+from .inmemory import SessionManager
 
-__all__ = ["BaseSessionManager"]
+__all__ = ["BaseSessionManager", "SessionManager"]
