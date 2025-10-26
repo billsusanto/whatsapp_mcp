@@ -27,12 +27,16 @@ RUN apt-get update && apt-get install -y \
 
 # Install Claude Code CLI and MCP servers globally
 # Pre-installing these prevents npx from downloading at runtime (which times out)
-RUN npm install -g @anthropic-ai/claude-code && \
-    npm install -g @modelcontextprotocol/server-github && \
-    npm install -g @netlify/mcp && \
-    npm install -g @neondatabase/mcp-server-neon && \
-    echo "✓ Installed MCP packages successfully" && \
-    npm list -g --depth=0 | grep -E "(claude-code|server-github|netlify/mcp|neondatabase/mcp-server-neon)" || echo "⚠️ Warning: Some packages may not have installed"
+RUN echo "📦 Installing npm packages..." && \
+    npm install -g @anthropic-ai/claude-code && echo "✅ @anthropic-ai/claude-code installed" || echo "❌ @anthropic-ai/claude-code FAILED" && \
+    npm install -g @modelcontextprotocol/server-github && echo "✅ @modelcontextprotocol/server-github installed" || echo "❌ @modelcontextprotocol/server-github FAILED" && \
+    npm install -g @netlify/mcp && echo "✅ @netlify/mcp installed" || echo "❌ @netlify/mcp FAILED" && \
+    npm install -g @neondatabase/mcp-server-neon && echo "✅ @neondatabase/mcp-server-neon installed" || echo "❌ @neondatabase/mcp-server-neon FAILED" && \
+    echo "" && echo "📋 Verification - Installed packages:" && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@anthropic-ai/claude-code" && echo "  ✓ claude-code" || echo "  ✗ claude-code MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@modelcontextprotocol/server-github" && echo "  ✓ server-github" || echo "  ✗ server-github MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@netlify/mcp" && echo "  ✓ netlify/mcp" || echo "  ✗ netlify/mcp MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@neondatabase/mcp-server-neon" && echo "  ✓ neon/mcp" || echo "  ✗ neon/mcp MISSING")
 
 # Create non-root user for security
 RUN useradd -m -u 1001 agentuser
@@ -69,13 +73,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install NPM packages globally with minimal cache
-RUN npm install -g --production \
-    @anthropic-ai/claude-code \
-    @modelcontextprotocol/server-github \
-    @netlify/mcp \
-    @neondatabase/mcp-server-neon \
-    && npm cache clean --force \
-    && echo "✓ Installed MCP packages successfully"
+RUN echo "📦 Installing npm packages (runtime)..." && \
+    npm install -g --production @anthropic-ai/claude-code && echo "✅ @anthropic-ai/claude-code installed" || echo "❌ @anthropic-ai/claude-code FAILED" && \
+    npm install -g --production @modelcontextprotocol/server-github && echo "✅ @modelcontextprotocol/server-github installed" || echo "❌ @modelcontextprotocol/server-github FAILED" && \
+    npm install -g --production @netlify/mcp && echo "✅ @netlify/mcp installed" || echo "❌ @netlify/mcp FAILED" && \
+    npm install -g --production @neondatabase/mcp-server-neon && echo "✅ @neondatabase/mcp-server-neon installed" || echo "❌ @neondatabase/mcp-server-neon FAILED" && \
+    npm cache clean --force && \
+    echo "" && echo "📋 Verification - Installed packages:" && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@anthropic-ai/claude-code" && echo "  ✓ claude-code" || echo "  ✗ claude-code MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@modelcontextprotocol/server-github" && echo "  ✓ server-github" || echo "  ✗ server-github MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@netlify/mcp" && echo "  ✓ netlify/mcp" || echo "  ✗ netlify/mcp MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@neondatabase/mcp-server-neon" && echo "  ✓ neon/mcp" || echo "  ✗ neon/mcp MISSING")
 
 # Copy Python wheels from builder and install
 COPY --from=builder /wheels /wheels
@@ -83,11 +91,18 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
     && rm -rf /wheels
 
 # Verify critical packages are installed (informational only - doesn't fail build)
-RUN python -c "import fastapi; print('✓ FastAPI installed')" && \
-    python -c "import anthropic; print('✓ Anthropic SDK installed')" && \
-    python -c "import redis; print('✓ Redis installed')" && \
-    python -c "import slowapi; print('✓ SlowAPI (rate limiting) installed')" && \
-    python -c "try:\n    import logfire\n    print('✓ Logfire installed')\n    try:\n        import opentelemetry.instrumentation.fastapi\n        import opentelemetry.instrumentation.httpx\n        print('✓ Logfire instrumentation packages installed')\n    except ImportError:\n        print('⚠️ Logfire instrumentation incomplete')\nexcept ImportError:\n    print('⚠️ Logfire not installed - telemetry will be disabled')" || true
+RUN echo "🐍 Verifying Python packages..." && \
+    (python -c "import fastapi" && echo "  ✅ fastapi" || echo "  ❌ fastapi MISSING") && \
+    (python -c "import anthropic" && echo "  ✅ anthropic" || echo "  ❌ anthropic MISSING") && \
+    (python -c "import redis" && echo "  ✅ redis" || echo "  ❌ redis MISSING") && \
+    (python -c "import slowapi" && echo "  ✅ slowapi" || echo "  ❌ slowapi MISSING") && \
+    (python -c "import sqlalchemy" && echo "  ✅ sqlalchemy" || echo "  ❌ sqlalchemy MISSING") && \
+    (python -c "import asyncpg" && echo "  ✅ asyncpg" || echo "  ❌ asyncpg MISSING") && \
+    (python -c "import mcp" && echo "  ✅ mcp" || echo "  ❌ mcp MISSING") && \
+    (python -c "import logfire" && echo "  ✅ logfire" || echo "  ❌ logfire MISSING") && \
+    (python -c "import opentelemetry.instrumentation.fastapi" && echo "  ✅ opentelemetry.instrumentation.fastapi" || echo "  ❌ opentelemetry.instrumentation.fastapi MISSING") && \
+    (python -c "import opentelemetry.instrumentation.httpx" && echo "  ✅ opentelemetry.instrumentation.httpx" || echo "  ❌ opentelemetry.instrumentation.httpx MISSING") && \
+    echo "✅ Python package verification complete" || true
 
 # Create non-root user
 RUN useradd -m -u 1001 agentuser

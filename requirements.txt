@@ -44,8 +44,8 @@ mcp>=1.18.0
 # Nested asyncio support for sync/async compatibility
 nest-asyncio>=1.5.0
 
-# Note: Redis no longer needed - using PostgreSQL for sessions
-# redis>=5.0.0
+# Redis for performance caching (PostgreSQL used for session storage)
+redis>=5.0.0
 
 # ============================================
 # Database (PostgreSQL/Neon)

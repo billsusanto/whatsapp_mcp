@@ -193,6 +193,22 @@ agent_manager = UnifiedAgentManager(
     enable_multi_agent=enable_netlify
 )
 
+# Log MCP configuration summary
+print("\n" + "=" * 60)
+print("📦 MCP SERVERS CONFIGURATION")
+print("=" * 60)
+if mcp_config:
+    for server_name, config in mcp_config.items():
+        if isinstance(config, dict) and 'command' in config:
+            print(f"✅ {server_name:15} - {config['command']} {' '.join(config.get('args', [])[:2])}")
+        elif isinstance(config, list):
+            print(f"✅ {server_name:15} - Custom tools ({len(config)} tools)")
+        else:
+            print(f"✅ {server_name:15} - Configured")
+else:
+    print("⚠️  No MCP servers configured")
+print("=" * 60 + "\n")
+
 # Include GitHub bot webhook routes
 app.include_router(github_router)
 
