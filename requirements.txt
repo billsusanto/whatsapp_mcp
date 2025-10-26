@@ -38,11 +38,14 @@ uvicorn[standard]>=0.24.0
 mcp>=1.18.0
 
 # ============================================
-# Session Storage (Redis)
+# Session Storage (PostgreSQL - replaces Redis)
 # ============================================
 
-# Redis client for session persistence
-redis>=5.0.0
+# Nested asyncio support for sync/async compatibility
+nest-asyncio>=1.5.0
+
+# Note: Redis no longer needed - using PostgreSQL for sessions
+# redis>=5.0.0
 
 # ============================================
 # Database (PostgreSQL/Neon)
@@ -84,6 +87,3 @@ logfire[fastapi,httpx]>=0.40.0
 
 # Rate limiting for FastAPI
 slowapi>=0.1.9
-
-# Async Redis for caching (already present above)
-# redis>=5.0.0

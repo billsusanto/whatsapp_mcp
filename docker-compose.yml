@@ -52,30 +52,34 @@ services:
   #     - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
   #     - PORT=10000
   #     - MCP_TRANSPORT=sse
+  #     - NEON_API_KEY=${NEON_API_KEY}
+  #     - ENABLE_NEON_MCP=true
   #   volumes:
   #     - ./src/python:/app/src/python  # Hot reload Python code
   #   networks:
   #     - whatsapp-network
 
   # ==========================================
-  # Redis for Session Storage
+  # Redis for Caching (Optional - disabled by default)
   # ==========================================
-  redis:
-    image: redis:7-alpine
-    container_name: whatsapp-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - whatsapp-network
+  # Note: Session storage now uses PostgreSQL
+  # Uncomment below if you want Redis for performance caching
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: whatsapp-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   restart: unless-stopped
+  #   networks:
+  #     - whatsapp-network
 
 # ============================================
 # Networks

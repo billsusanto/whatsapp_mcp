@@ -95,3 +95,108 @@ class OrchestratorAudit(Base):
         Index('idx_audit_created', 'created_at'),
         Index('idx_audit_event_type', 'event_type'),
     )
+
+
+class ConversationSession(Base):
+    """
+    Stores conversation sessions and message history
+
+    Replaces Redis for persistent session storage.
+    Each platform (WhatsApp, GitHub) has separate sessions.
+
+    session_id format:
+    - WhatsApp: phone number (e.g., "+1234567890")
+    - GitHub: repo#issue (e.g., "owner/repo#123")
+    """
+    __tablename__ = "conversation_session"
+
+    # Primary key (session_id = phone number or repo#issue)
+    session_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+
+    # Platform identifier
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)  # "whatsapp" or "github"
+
+    # Session data
+    conversation_history: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=list)
+    session_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_active: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index('idx_session_id', 'session_id'),
+        Index('idx_session_platform', 'platform'),
+        Index('idx_session_last_active', 'last_active'),
+    )
+
+
+class ProjectMetadata(Base):
+    """
+    Tracks all user projects and their dedicated database schemas
+
+    Each project gets its own PostgreSQL schema for data isolation:
+    - Schema name format: project_{user_hash}_{project_id}
+    - Enables multi-tenancy with schema-level isolation
+    - Allows safe database operations per project
+    """
+    __tablename__ = "project_metadata"
+
+    # Primary key
+    project_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+
+    # User identification (hashed for privacy)
+    user_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    user_id_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA256 hash
+
+    # Platform (whatsapp, github, etc.)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # Project details
+    project_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    project_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Database isolation
+    schema_name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+
+    # Project specification (from design phase)
+    design_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    backend_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    frontend_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # Deployment information
+    deployment_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    deployment_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, deployed, failed
+
+    # Database schema metadata
+    tables_created: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+
+    # Project status
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active, archived, deleted
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
+    last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Indexes for efficient queries
+    __table_args__ = (
+        Index('idx_project_user_id', 'user_id'),
+        Index('idx_project_user_hash', 'user_id_hash'),
+        Index('idx_project_schema', 'schema_name'),
+        Index('idx_project_platform', 'platform'),
+        Index('idx_project_status', 'status'),
+        Index('idx_project_created', 'created_at'),
+    )

@@ -21,7 +21,7 @@ sys.path.append(os.path.dirname(__file__))
 
 from agents.unified_manager import UnifiedAgentManager
 from agents.adapters.whatsapp_adapter import WhatsAppAdapter
-from agents.session_redis import RedisSessionManager
+from agents.session_postgres import PostgreSQLSessionManager
 from whatsapp_mcp.client import WhatsAppClient
 from whatsapp_mcp.parser import WhatsAppWebhookParser
 from github_bot import router as github_router
@@ -168,11 +168,21 @@ try:
 except Exception as e:
     print(f"⚠️  PostgreSQL MCP not available: {e}")
 
+# Add Neon MCP if enabled
+enable_neon = os.getenv("ENABLE_NEON_MCP", "false").lower() == "true"
+if enable_neon:
+    try:
+        from neon_mcp.server import create_neon_mcp_config
+        mcp_config["neon"] = create_neon_mcp_config()
+        print("✅ Neon MCP configured")
+    except Exception as e:
+        print(f"⚠️  Neon MCP not available: {e}")
+
 # Initialize WhatsApp adapter
 whatsapp_adapter = WhatsAppAdapter(whatsapp_client)
 
-# Initialize Redis session manager
-session_manager = RedisSessionManager(ttl_minutes=60, max_history=10)
+# Initialize PostgreSQL session manager for WhatsApp
+session_manager = PostgreSQLSessionManager(ttl_minutes=60, max_history=10, platform="whatsapp")
 
 # Initialize Unified Agent Manager
 agent_manager = UnifiedAgentManager(
@@ -470,6 +480,54 @@ async def reset_session(phone_number: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/agent/history/{session_id}")
+async def get_conversation_history_endpoint(session_id: str):
+    """
+    Get conversation history for a session (demonstrates persistence).
+
+    This endpoint proves that conversation history persists across server restarts
+    because it loads directly from PostgreSQL.
+
+    Args:
+        session_id: Session identifier (phone number for WhatsApp, repo#issue for GitHub)
+
+    Returns:
+        Conversation history with metadata
+    """
+    try:
+        from database import ConversationSession, get_session
+        from sqlalchemy import select
+
+        async for db_session in get_session():
+            stmt = select(ConversationSession).where(ConversationSession.session_id == session_id)
+            result = await db_session.execute(stmt)
+            session = result.scalar_one_or_none()
+
+            if session:
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "platform": session.platform,
+                    "message_count": len(session.conversation_history or []),
+                    "conversation_history": session.conversation_history or [],
+                    "created_at": session.created_at.isoformat(),
+                    "last_active": session.last_active.isoformat(),
+                    "persistence_note": "✅ This data is loaded from PostgreSQL and persists across server restarts"
+                }
+            else:
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "message_count": 0,
+                    "conversation_history": [],
+                    "persistence_note": "No conversation history yet. Start a conversation to see persistence in action!"
+                }
+
+    except Exception as e:
+        print(f"Error getting conversation history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize service on startup"""
@@ -485,6 +543,15 @@ async def startup_event():
         raise RuntimeError(error_msg)
 
     print("✅ All required secrets validated")
+
+    # Initialize database tables
+    try:
+        from database import init_db
+        await init_db()
+        print("✅ Database tables initialized")
+    except Exception as e:
+        print(f"⚠️  Database initialization failed: {e}")
+        # Don't crash on database errors, continue running
 
     # Initialize performance cache
     await cache_manager.initialize()
@@ -512,6 +579,14 @@ async def shutdown_event():
     print("Shutting down WhatsApp MCP Service...")
     await agent_manager.cleanup_all_agents()
     await cache_manager.close()  # Close Redis connection
+
+    # Close database connections
+    try:
+        from database import close_db
+        await close_db()
+    except Exception as e:
+        print(f"⚠️  Database cleanup error: {e}")
+
     print("Shutdown complete")
 
 

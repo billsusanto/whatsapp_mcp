@@ -30,8 +30,9 @@ RUN apt-get update && apt-get install -y \
 RUN npm install -g @anthropic-ai/claude-code && \
     npm install -g @modelcontextprotocol/server-github && \
     npm install -g @netlify/mcp && \
+    npm install -g @neondatabase/mcp-server-neon && \
     echo "✓ Installed MCP packages successfully" && \
-    npm list -g --depth=0 | grep -E "(claude-code|server-github|netlify/mcp)" || echo "⚠️ Warning: Some packages may not have installed"
+    npm list -g --depth=0 | grep -E "(claude-code|server-github|netlify/mcp|neondatabase/mcp-server-neon)" || echo "⚠️ Warning: Some packages may not have installed"
 
 # Create non-root user for security
 RUN useradd -m -u 1001 agentuser
@@ -72,6 +73,7 @@ RUN npm install -g --production \
     @anthropic-ai/claude-code \
     @modelcontextprotocol/server-github \
     @netlify/mcp \
+    @neondatabase/mcp-server-neon \
     && npm cache clean --force \
     && echo "✓ Installed MCP packages successfully"
 
@@ -85,7 +87,17 @@ RUN python -c "import fastapi; print('✓ FastAPI installed')" && \
     python -c "import anthropic; print('✓ Anthropic SDK installed')" && \
     python -c "import redis; print('✓ Redis installed')" && \
     python -c "import slowapi; print('✓ SlowAPI (rate limiting) installed')" && \
-    python -c "try:\n    import logfire\n    print('✓ Logfire installed')\n    try:\n        import opentelemetry.instrumentation.fastapi\n        import opentelemetry.instrumentation.httpx\n        print('✓ Logfire instrumentation packages installed')\n    except ImportError:\n        print('⚠️ Logfire instrumentation incomplete')\nexcept ImportError:\n    print('⚠️ Logfire not installed - telemetry will be disabled')" || true
+    python -c "try:
+    import logfire
+    print('✓ Logfire installed')
+    try:
+        import opentelemetry.instrumentation.fastapi
+        import opentelemetry.instrumentation.httpx
+        print('✓ Logfire instrumentation packages installed')
+    except ImportError:
+        print('⚠️ Logfire instrumentation incomplete')
+except ImportError:
+    print('⚠️ Logfire not installed - telemetry will be disabled')" || true
 
 # Create non-root user
 RUN useradd -m -u 1001 agentuser
@@ -105,6 +117,8 @@ USER agentuser
 # - WHATSAPP_WEBHOOK_VERIFY_TOKEN (required)
 # - GITHUB_PERSONAL_ACCESS_TOKEN (optional)
 # - NETLIFY_PERSONAL_ACCESS_TOKEN (optional)
+# - NEON_API_KEY (optional - for Neon database MCP)
+# - ENABLE_NEON_MCP (optional - set to "true" to enable Neon MCP, defaults to "false")
 # - LOGFIRE_TOKEN (optional - for telemetry/observability)
 # - ENABLE_LOGFIRE (optional - set to "true" to enable, defaults to "false")
 # - ENV (optional - "development" or "production", defaults to "production")

@@ -226,7 +226,7 @@ async def process_droid_command(command: str, context: Dict[str, Any]):
                 # Import here to avoid circular imports
                 from agents.unified_manager import UnifiedAgentManager
                 from agents.adapters.github_adapter import GitHubAdapter
-                from agents.session import SessionManager
+                from agents.session_postgres import PostgreSQLSessionManager
                 from github_bot.client import GitHubClient
 
                 # Build MCP configuration for GitHub platform
@@ -270,8 +270,8 @@ async def process_droid_command(command: str, context: Dict[str, Any]):
                 github_client = GitHubClient()
                 github_adapter = GitHubAdapter(github_client, context)
 
-                # Create session manager (in-memory for GitHub)
-                session_manager = SessionManager(ttl_minutes=60, max_history=10)
+                # Create session manager (PostgreSQL for GitHub sessions)
+                session_manager = PostgreSQLSessionManager(ttl_minutes=60, max_history=10, platform="github")
 
                 # Create unified manager
                 manager = UnifiedAgentManager(

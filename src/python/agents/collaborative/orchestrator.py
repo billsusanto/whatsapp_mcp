@@ -14,12 +14,22 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from sdk.claude_sdk import ClaudeSDK
 from .designer_agent import DesignerAgent
 from .frontend_agent import FrontendDeveloperAgent
+from .backend_agent import BackendAgent
 from .code_reviewer_agent import CodeReviewerAgent
 from .qa_agent import QAEngineerAgent
 from .devops_agent import DevOpsEngineerAgent
 from .models import Task, TaskResponse
 from .a2a_protocol import a2a_protocol
 from .orchestrator_state import OrchestratorStateManager
+
+# Import project database manager for full-stack apps
+try:
+    from database.project_manager import project_manager
+    PROJECT_MANAGER_AVAILABLE = True
+except ImportError:
+    PROJECT_MANAGER_AVAILABLE = False
+    project_manager = None
+    print("⚠️  Project manager not available - backend features disabled")
 
 # Import telemetry
 from utils.telemetry import (
@@ -40,6 +50,7 @@ class CollaborativeOrchestrator:
 
     Agent Team:
     - UI/UX Designer: Creates design specifications and reviews implementations
+    - Backend Developer: Creates database schemas, APIs, and server-side logic (NEW!)
     - Frontend Developer: Implements React/Vue code
     - Code Reviewer: Reviews code for quality, security, and best practices
     - QA Engineer: Tests functionality, usability, and accessibility
@@ -50,13 +61,14 @@ class CollaborativeOrchestrator:
     - Standardized messaging with Task and TaskResponse models
     - Full traceability and logging of all communications
 
-    Workflow:
+    Workflow (Full-Stack):
     1. Designer creates design specification (via A2A)
-    2. Frontend implements based on design (via A2A)
-    3. Code Reviewer reviews code quality and security (via A2A)
-    4. QA Engineer tests functionality and usability (via A2A)
-    5. DevOps Engineer optimizes and deploys to Netlify (via A2A)
-    6. Iterative improvement until quality standards met
+    2. Backend creates database schema and API (via A2A) - if backend required
+    3. Frontend implements based on design + backend API (via A2A)
+    4. Code Reviewer reviews code quality and security (via A2A)
+    5. QA Engineer tests functionality and usability (via A2A)
+    6. DevOps Engineer optimizes and deploys to Netlify (via A2A)
+    7. Iterative improvement until quality standards met
     """
 
     # Orchestrator's agent ID for A2A protocol
@@ -64,6 +76,7 @@ class CollaborativeOrchestrator:
 
     # Agent IDs (must match BaseAgent initialization)
     DESIGNER_ID = "designer_001"
+    BACKEND_ID = "backend_001"
     FRONTEND_ID = "frontend_001"
     CODE_REVIEWER_ID = "code_reviewer_001"
     QA_ID = "qa_engineer_001"
@@ -177,12 +190,17 @@ class CollaborativeOrchestrator:
         self.accumulated_refinements = []  # List of refinements/modifications from user
         self.current_implementation = None  # Current implementation being worked on
         self.current_design_spec = None  # Current design specification
+        self.current_backend_spec = None  # Current backend specification (NEW!)
 
         # Detailed task tracking for status queries
         self.current_agent_working = None  # Which agent is currently active
         self.current_task_description = None  # What task is being executed
         self.workflow_steps_completed = []  # List of completed steps
         self.workflow_steps_total = 0  # Total number of steps in workflow
+
+        # Project database management (for full-stack apps)
+        self.project_id = None  # Project ID (set when creating backend)
+        self.project_metadata = None  # Project metadata from database
 
         # State persistence (lazy initialization - initialized on first use)
         self.state_manager = None
@@ -207,7 +225,7 @@ class CollaborativeOrchestrator:
         Get or create an agent on-demand (lazy initialization)
 
         Args:
-            agent_type: Type of agent ("designer", "frontend", "code_reviewer", "qa", "devops")
+            agent_type: Type of agent ("designer", "backend", "frontend", "code_reviewer", "qa", "devops")
 
         Returns:
             Agent instance
@@ -228,6 +246,12 @@ class CollaborativeOrchestrator:
 
         if agent_type == "designer":
             agent = DesignerAgent(self.mcp_servers)
+        elif agent_type == "backend":
+            # Backend agent needs project_manager for database operations
+            if PROJECT_MANAGER_AVAILABLE:
+                agent = BackendAgent(self.mcp_servers, project_manager=project_manager)
+            else:
+                raise ValueError("Backend agent requires project_manager (database features)")
         elif agent_type == "frontend":
             agent = FrontendDeveloperAgent(self.mcp_servers)
         elif agent_type == "code_reviewer":
@@ -679,16 +703,21 @@ Please update the implementation to incorporate this change.""",
         """
         if not self._state_manager_initialized:
             try:
+                print(f"🗄️  Initializing state manager for user: {self.user_id}")
                 self.state_manager = OrchestratorStateManager()
                 await self.state_manager.initialize()
                 self._state_manager_initialized = True
+                print(f"✅ State manager initialized successfully")
 
                 # Try to restore previous state
                 if self.user_id:
                     await self._restore_state()
 
             except Exception as e:
-                print(f"⚠️  State persistence disabled: {e}")
+                print(f"❌ State persistence FAILED - Database will NOT be used!")
+                print(f"   Error: {e}")
+                import traceback
+                traceback.print_exc()
                 self.state_manager = None
                 self._state_manager_initialized = False
 
@@ -698,7 +727,12 @@ Please update the implementation to incorporate this change.""",
 
         Automatically called after state changes to ensure persistence
         """
-        if not self.state_manager or not self.user_id:
+        if not self.state_manager:
+            print(f"⚠️  State manager not initialized - skipping database save")
+            return
+
+        if not self.user_id:
+            print(f"⚠️  No user_id - skipping database save")
             return
 
         try:
@@ -716,11 +750,16 @@ Please update the implementation to incorporate this change.""",
                 'current_task_description': self.current_task_description
             }
 
+            print(f"💾 Saving state to database for user: {self.user_id}")
+            print(f"   Phase: {self.current_phase}, Workflow: {self.current_workflow}")
             await self.state_manager.save_state(self.user_id, state)
-            print(f"💾 State saved to database (user: {self.user_id})")
+            print(f"✅ State successfully saved to Neon database!")
 
         except Exception as e:
-            print(f"⚠️  Failed to save state: {e}")
+            print(f"❌ Failed to save state to database!")
+            print(f"   Error: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def _restore_state(self):
         """
@@ -1046,6 +1085,7 @@ Please update the implementation to incorporate this change.""",
 
 **Available Agents:**
 - **designer**: UI/UX Designer - Creates design specifications, color palettes, typography, layouts, component designs, reviews implementations
+- **backend**: Backend Developer - Creates database schemas, REST APIs, authentication, server-side logic, SQL migrations (NEW!)
 - **frontend**: Frontend Developer - Implements React/Vue/Next.js code, fixes bugs, handles dependencies, writes components
 - **code_reviewer**: Code Reviewer - Reviews code for quality, security vulnerabilities, performance issues, best practices
 - **qa**: QA Engineer - Tests functionality, usability, accessibility, creates test plans, identifies bugs
@@ -1053,9 +1093,10 @@ Please update the implementation to incorporate this change.""",
 
 **Available Workflows:**
 1. **full_build**: Build a complete production-ready webapp from scratch
-   - Steps: Designer → Frontend → Code Review → QA Testing → DevOps Optimization → Deploy
-   - Agents: Designer + Frontend + Code Reviewer + QA + DevOps
+   - Steps: Designer → Backend (if needed) → Frontend → Code Review → QA Testing → DevOps Optimization → Deploy
+   - Agents: Designer + Backend (optional) + Frontend + Code Reviewer + QA + DevOps
    - Use when: User wants to create a new high-quality application
+   - NOTE: Include Backend agent if the app needs database, API, authentication, or server-side logic
 
 2. **bug_fix**: Fix errors in existing code
    - Steps: Frontend fixes → Code Review → Deploy with verification
@@ -1301,14 +1342,106 @@ Please try again or provide more details."""
 
             print(f"✓ Design completed via A2A")
 
-            # Step 2: Frontend implements design (A2A - keep agent alive for improvements)
+            # Step 2 (Optional): Backend creates database schema and API if needed
+            backend_spec = None
+            backend_api_url = None
+
+            # Check if backend is needed (from plan or keywords)
+            needs_backend = False
+            if plan and "backend" in plan.get('agents_needed', []):
+                needs_backend = True
+            else:
+                # Heuristic: Check for backend-related keywords in prompt
+                backend_keywords = ["database", "api", "backend", "auth", "login", "signup",
+                                   "register", "user", "save data", "store", "crud"]
+                needs_backend = any(kw in user_prompt.lower() for kw in backend_keywords)
+
+            if needs_backend and PROJECT_MANAGER_AVAILABLE:
+                self.current_phase = "backend"
+                await self._save_state()
+                print("\n[Step 2/6] 🔧 Backend creating database schema and API (A2A)...")
+
+                # Create project database schema
+                try:
+                    project_name = user_prompt[:50].strip()  # Use first 50 chars as project name
+                    self.project_metadata = await project_manager.create_project(
+                        user_id=self.user_id,
+                        platform=self.platform,
+                        project_name=project_name,
+                        project_description=user_prompt
+                    )
+                    self.project_id = self.project_metadata.project_id
+
+                    print(f"   ✅ Created project database: {self.project_metadata.schema_name}")
+
+                    # Backend agent designs and implements API
+                    backend_result = await self._send_task_to_agent(
+                        agent_id=self.BACKEND_ID,
+                        task_description=f"Create database schema and REST API for: {user_prompt}",
+                        metadata={"design_spec": design_spec, "project_id": self.project_id},
+                        priority="high",
+                        cleanup_after=False  # Keep backend alive for potential refinements
+                    )
+
+                    backend_spec = backend_result.get('backend_spec', {})
+                    self.current_backend_spec = backend_spec
+
+                    # Execute SQL migrations to create tables
+                    if backend_result.get('sql_migrations'):
+                        backend_agent = await self._get_agent("backend")
+                        db_result = await backend_agent.create_database_tables(
+                            project_id=self.project_id,
+                            sql_migrations=backend_result['sql_migrations']
+                        )
+
+                        if db_result.get('success'):
+                            print(f"   ✅ Database tables created in schema: {self.project_metadata.schema_name}")
+                        else:
+                            print(f"   ⚠️  Database creation warning: {db_result.get('error', 'Unknown')}")
+
+                    # Update project metadata with backend spec
+                    await project_manager.update_project_spec(
+                        project_id=self.project_id,
+                        design_spec=design_spec,
+                        backend_spec=backend_spec
+                    )
+
+                    # For MVP, backend URL is the same as frontend (will be refactored for separate backend deployment)
+                    backend_api_url = "/api"  # Relative API path
+
+                    print(f"✓ Backend completed via A2A")
+
+                except Exception as e:
+                    print(f"   ⚠️  Backend creation failed: {e}")
+                    log_error(e, "orchestrator_backend_creation")
+                    # Continue without backend
+                    backend_spec = None
+            elif needs_backend and not PROJECT_MANAGER_AVAILABLE:
+                print("\n⚠️  Backend features requested but project manager not available")
+                print("   Continuing with frontend-only build...")
+
+            # Step 3: Frontend implements design (+ backend API if available)
             self.current_phase = "implementation"
             await self._save_state()
-            print("\n[Step 2/5] 💻 Frontend implementing design (A2A)...")
+            step_num = "3/6" if backend_spec else "2/5"
+            print(f"\n[Step {step_num}] 💻 Frontend implementing design (A2A)...")
+
+            # Build frontend task description with backend context
+            frontend_task = f"Implement webapp using next.js, react, tailwind and other frontend libraries: {user_prompt}"
+            if backend_spec:
+                frontend_task += f"\n\nBackend API is available at {backend_api_url}. Use the following API endpoints:\n"
+                # Include API endpoint information
+                for endpoint in backend_spec.get('api_endpoints', []):
+                    frontend_task += f"- {endpoint.get('method', 'GET')} {backend_api_url}{endpoint.get('path', '')}: {endpoint.get('description', '')}\n"
+
             impl_result = await self._send_task_to_agent(
                 agent_id=self.FRONTEND_ID,
-                task_description=f"Implement webapp using next.js, react, tailwind and other frontend libraries: {user_prompt}",
-                metadata={"design_spec": design_spec},
+                task_description=frontend_task,
+                metadata={
+                    "design_spec": design_spec,
+                    "backend_spec": backend_spec,
+                    "backend_api_url": backend_api_url
+                },
                 priority="high",
                 cleanup_after=False  # Keep frontend alive for improvement iterations
             )
