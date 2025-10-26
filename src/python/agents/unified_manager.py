@@ -473,11 +473,14 @@ Classify this message into ONE of these categories:
         async for chunk in agent.stream_response(message):
             yield chunk
 
-    def reset_conversation(self, user_id: str):
+    async def reset_conversation(self, user_id: str):
         """Reset conversation for a user."""
         if user_id in self.agents:
-            self.agents[user_id].reset_conversation()
-        self.session_manager.clear_session(user_id)
+            await self.agents[user_id].reset_conversation()
+        if hasattr(self.session_manager, '_clear_session_async'):
+            await self.session_manager._clear_session_async(user_id)
+        else:
+            self.session_manager.clear_session(user_id)
         print(f"🔄 Reset conversation for {user_id}")
 
     async def cleanup_agent(self, user_id: str):
@@ -497,6 +500,9 @@ Classify this message into ONE of these categories:
         """Get number of active agents."""
         return len(self.agents)
 
-    def cleanup_expired_sessions(self) -> int:
+    async def cleanup_expired_sessions(self) -> int:
         """Cleanup expired sessions via session manager."""
-        return self.session_manager.cleanup_expired_sessions()
+        if hasattr(self.session_manager, 'cleanup_expired_sessions_async'):
+            return await self.session_manager.cleanup_expired_sessions_async()
+        else:
+            return self.session_manager.cleanup_expired_sessions()

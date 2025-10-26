@@ -164,9 +164,9 @@ class PostgreSQLSessionManager(BaseSessionManager):
             await db_session.commit()
             print(f"🗑️ Cleared session for {session_id}")
 
-    async def cleanup_expired_sessions(self) -> int:
+    async def _cleanup_expired_sessions_impl(self) -> int:
         """
-        Remove sessions that haven't been active for > TTL.
+        Internal implementation: Remove sessions that haven't been active for > TTL.
 
         Returns:
             Number of sessions cleaned up
@@ -221,82 +221,102 @@ class PostgreSQLSessionManager(BaseSessionManager):
             return None
 
     # Synchronous wrappers for BaseSessionManager interface compatibility
+    # Note: These should NOT be called from async code. Use _*_async methods instead.
     def add_message(self, session_id: str, role: str, content: str):
         """
         Add a message to the conversation history.
 
         Synchronous wrapper for compatibility with BaseSessionManager.
+        WARNING: Do not call from async code - use _add_message_async instead.
         """
         import asyncio
-        import concurrent.futures
-
         try:
-            loop = asyncio.get_running_loop()
-            # Loop is already running, use run_in_executor with a new event loop
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    lambda: asyncio.run(self._add_message_async(session_id, role, content))
-                ).result()
-        except RuntimeError:
-            # No running loop, safe to use asyncio.run()
+            # This will raise RuntimeError if called from async context
             return asyncio.run(self._add_message_async(session_id, role, content))
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise RuntimeError(
+                    "Cannot call sync add_message from async context. "
+                    "Use 'await session_manager._add_message_async()' instead."
+                ) from e
+            raise
 
     def get_conversation_history(self, session_id: str) -> List[Dict]:
         """
         Get conversation history for a user.
 
         Synchronous wrapper for compatibility with BaseSessionManager.
+        WARNING: Do not call from async code - use _get_conversation_history_async instead.
         """
         import asyncio
-        import concurrent.futures
-
         try:
-            loop = asyncio.get_running_loop()
-            # Loop is already running, use run_in_executor with a new event loop
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    lambda: asyncio.run(self._get_conversation_history_async(session_id))
-                ).result()
-        except RuntimeError:
-            # No running loop, safe to use asyncio.run()
             return asyncio.run(self._get_conversation_history_async(session_id))
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise RuntimeError(
+                    "Cannot call sync get_conversation_history from async context. "
+                    "Use 'await session_manager._get_conversation_history_async()' instead."
+                ) from e
+            raise
 
     def clear_session(self, session_id: str):
         """
         Clear/delete a session.
 
         Synchronous wrapper for compatibility with BaseSessionManager.
+        WARNING: Do not call from async code - use _clear_session_async instead.
         """
         import asyncio
-        import concurrent.futures
-
         try:
-            loop = asyncio.get_running_loop()
-            # Loop is already running, use run_in_executor with a new event loop
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    lambda: asyncio.run(self._clear_session_async(session_id))
-                ).result()
-        except RuntimeError:
-            # No running loop, safe to use asyncio.run()
             return asyncio.run(self._clear_session_async(session_id))
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise RuntimeError(
+                    "Cannot call sync clear_session from async context. "
+                    "Use 'await session_manager._clear_session_async()' instead."
+                ) from e
+            raise
 
     def get_session(self, session_id: str) -> Dict:
         """
         Get or create a session for a user.
 
         Synchronous wrapper for compatibility with BaseSessionManager.
+        WARNING: Do not call from async code - use _get_session_async instead.
         """
         import asyncio
-        import concurrent.futures
-
         try:
-            loop = asyncio.get_running_loop()
-            # Loop is already running, use run_in_executor with a new event loop
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    lambda: asyncio.run(self._get_session_async(session_id))
-                ).result()
-        except RuntimeError:
-            # No running loop, safe to use asyncio.run()
             return asyncio.run(self._get_session_async(session_id))
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise RuntimeError(
+                    "Cannot call sync get_session from async context. "
+                    "Use 'await session_manager._get_session_async()' instead."
+                ) from e
+            raise
+
+    def cleanup_expired_sessions(self) -> int:
+        """
+        Cleanup expired sessions (sync wrapper).
+
+        WARNING: Do not call from async code - use cleanup_expired_sessions_async instead.
+        """
+        import asyncio
+        try:
+            return asyncio.run(self._cleanup_expired_sessions_impl())
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise RuntimeError(
+                    "Cannot call sync cleanup_expired_sessions from async context. "
+                    "Use 'await session_manager.cleanup_expired_sessions_async()' instead."
+                ) from e
+            raise
+
+    async def cleanup_expired_sessions_async(self) -> int:
+        """
+        Cleanup expired sessions (async version).
+
+        Calls the main async implementation.
+        """
+        # Call the actual cleanup implementation (defined earlier in the class)
+        return await self._cleanup_expired_sessions_impl()

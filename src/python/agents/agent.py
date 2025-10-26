@@ -59,17 +59,26 @@ class Agent:
             Claude's response text
         """
         try:
-            # Add user message to session
-            self.session_manager.add_message(self.phone_number, "user", user_message)
+            # Add user message to session (use async method if available)
+            if hasattr(self.session_manager, '_add_message_async'):
+                await self.session_manager._add_message_async(self.phone_number, "user", user_message)
+            else:
+                self.session_manager.add_message(self.phone_number, "user", user_message)
 
-            # Get conversation history
-            history = self.session_manager.get_conversation_history(self.phone_number)
+            # Get conversation history (use async method if available)
+            if hasattr(self.session_manager, '_get_conversation_history_async'):
+                history = await self.session_manager._get_conversation_history_async(self.phone_number)
+            else:
+                history = self.session_manager.get_conversation_history(self.phone_number)
 
             # Send to Claude SDK
             response = await self.claude_sdk.send_message(user_message, history)
 
-            # Add assistant response to session
-            self.session_manager.add_message(self.phone_number, "assistant", response)
+            # Add assistant response to session (use async method if available)
+            if hasattr(self.session_manager, '_add_message_async'):
+                await self.session_manager._add_message_async(self.phone_number, "assistant", response)
+            else:
+                self.session_manager.add_message(self.phone_number, "assistant", response)
 
             return response
 
@@ -88,11 +97,17 @@ class Agent:
             Text chunks as they arrive from Claude
         """
         try:
-            # Add user message to session
-            self.session_manager.add_message(self.phone_number, "user", user_message)
+            # Add user message to session (use async method if available)
+            if hasattr(self.session_manager, '_add_message_async'):
+                await self.session_manager._add_message_async(self.phone_number, "user", user_message)
+            else:
+                self.session_manager.add_message(self.phone_number, "user", user_message)
 
-            # Get conversation history
-            history = self.session_manager.get_conversation_history(self.phone_number)
+            # Get conversation history (use async method if available)
+            if hasattr(self.session_manager, '_get_conversation_history_async'):
+                history = await self.session_manager._get_conversation_history_async(self.phone_number)
+            else:
+                history = self.session_manager.get_conversation_history(self.phone_number)
 
             # Stream from Claude SDK
             full_response = ""
@@ -100,16 +115,22 @@ class Agent:
                 full_response += chunk
                 yield chunk
 
-            # Add complete response to session
-            self.session_manager.add_message(self.phone_number, "assistant", full_response)
+            # Add complete response to session (use async method if available)
+            if hasattr(self.session_manager, '_add_message_async'):
+                await self.session_manager._add_message_async(self.phone_number, "assistant", full_response)
+            else:
+                self.session_manager.add_message(self.phone_number, "assistant", full_response)
 
         except Exception as e:
             print(f"Error in agent streaming for {self.phone_number}: {str(e)}")
             raise
 
-    def reset_conversation(self):
+    async def reset_conversation(self):
         """Clear the conversation history for this user"""
-        self.session_manager.clear_session(self.phone_number)
+        if hasattr(self.session_manager, '_clear_session_async'):
+            await self.session_manager._clear_session_async(self.phone_number)
+        else:
+            self.session_manager.clear_session(self.phone_number)
         print(f"Conversation reset for {self.phone_number}")
 
     async def cleanup(self):

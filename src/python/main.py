@@ -435,7 +435,7 @@ async def periodic_cleanup():
             print("🧹 Running periodic cleanup...")
 
             # Cleanup expired sessions
-            expired_count = agent_manager.cleanup_expired_sessions()
+            expired_count = await agent_manager.cleanup_expired_sessions()
 
             # Get current state
             active_agents = agent_manager.get_active_agents_count()
