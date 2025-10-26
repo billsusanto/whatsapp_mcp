@@ -228,15 +228,18 @@ class PostgreSQLSessionManager(BaseSessionManager):
         Synchronous wrapper for compatibility with BaseSessionManager.
         """
         import asyncio
+        import concurrent.futures
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If event loop is running, create a task
-                import nest_asyncio
-                nest_asyncio.apply()
+            loop = asyncio.get_running_loop()
+            # Loop is already running, use run_in_executor with a new event loop
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(
+                    lambda: asyncio.run(self._add_message_async(session_id, role, content))
+                ).result()
         except RuntimeError:
-            pass
-        return asyncio.run(self._add_message_async(session_id, role, content))
+            # No running loop, safe to use asyncio.run()
+            return asyncio.run(self._add_message_async(session_id, role, content))
 
     def get_conversation_history(self, session_id: str) -> List[Dict]:
         """
@@ -245,14 +248,18 @@ class PostgreSQLSessionManager(BaseSessionManager):
         Synchronous wrapper for compatibility with BaseSessionManager.
         """
         import asyncio
+        import concurrent.futures
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio
-                nest_asyncio.apply()
+            loop = asyncio.get_running_loop()
+            # Loop is already running, use run_in_executor with a new event loop
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(
+                    lambda: asyncio.run(self._get_conversation_history_async(session_id))
+                ).result()
         except RuntimeError:
-            pass
-        return asyncio.run(self._get_conversation_history_async(session_id))
+            # No running loop, safe to use asyncio.run()
+            return asyncio.run(self._get_conversation_history_async(session_id))
 
     def clear_session(self, session_id: str):
         """
@@ -261,14 +268,18 @@ class PostgreSQLSessionManager(BaseSessionManager):
         Synchronous wrapper for compatibility with BaseSessionManager.
         """
         import asyncio
+        import concurrent.futures
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio
-                nest_asyncio.apply()
+            loop = asyncio.get_running_loop()
+            # Loop is already running, use run_in_executor with a new event loop
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(
+                    lambda: asyncio.run(self._clear_session_async(session_id))
+                ).result()
         except RuntimeError:
-            pass
-        return asyncio.run(self._clear_session_async(session_id))
+            # No running loop, safe to use asyncio.run()
+            return asyncio.run(self._clear_session_async(session_id))
 
     def get_session(self, session_id: str) -> Dict:
         """
@@ -277,11 +288,15 @@ class PostgreSQLSessionManager(BaseSessionManager):
         Synchronous wrapper for compatibility with BaseSessionManager.
         """
         import asyncio
+        import concurrent.futures
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio
-                nest_asyncio.apply()
+            loop = asyncio.get_running_loop()
+            # Loop is already running, use run_in_executor with a new event loop
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(
+                    lambda: asyncio.run(self._get_session_async(session_id))
+                ).result()
         except RuntimeError:
-            pass
-        return asyncio.run(self._get_session_async(session_id))
+            # No running loop, safe to use asyncio.run()
+            return asyncio.run(self._get_session_async(session_id))

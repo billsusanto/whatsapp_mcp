@@ -41,9 +41,6 @@ mcp>=1.18.0
 # Session Storage (PostgreSQL - replaces Redis)
 # ============================================
 
-# Nested asyncio support for sync/async compatibility
-nest-asyncio>=1.5.0
-
 # Redis for optional performance caching (PostgreSQL used for session storage)
 # Uncomment below to enable response caching (improves performance but not required)
 # redis>=5.0.0
