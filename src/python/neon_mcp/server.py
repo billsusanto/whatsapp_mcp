@@ -44,13 +44,12 @@ def create_neon_mcp_config(api_key: Optional[str] = None) -> Dict[str, Any]:
 
     # Neon MCP server using npx with stdio transport
     # This matches the format expected by Claude Agent SDK
+    # The API key is passed via environment variable only
     config = {
         "command": "npx",
         "args": [
             "-y",
-            "@neondatabase/mcp-server-neon",
-            "start",
-            neon_api_key
+            "@neondatabase/mcp-server-neon"
         ],
         "env": {
             "NEON_API_KEY": neon_api_key
@@ -58,6 +57,7 @@ def create_neon_mcp_config(api_key: Optional[str] = None) -> Dict[str, Any]:
     }
 
     print(f"✅ Neon MCP configured (stdio transport)")
+    print(f"   API Key: {neon_api_key[:15]}..." if neon_api_key else "   API Key: NOT SET")
 
     return config
 
