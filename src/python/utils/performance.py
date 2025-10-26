@@ -15,8 +15,15 @@ import asyncio
 from typing import Optional, Dict, Any, Callable, TypeVar, List
 from datetime import datetime, timedelta
 from functools import wraps
-import redis.asyncio as aioredis
 from contextlib import asynccontextmanager
+
+# Try to import Redis, but make it optional
+try:
+    import redis.asyncio as aioredis
+    REDIS_AVAILABLE = True
+except ImportError:
+    aioredis = None
+    REDIS_AVAILABLE = False
 
 # Type variables for generic functions
 T = TypeVar('T')
@@ -40,8 +47,11 @@ class CacheManager:
             redis_url: Redis connection URL (defaults to env var)
         """
         self.redis_url = redis_url or os.getenv("REDIS_URL")
-        self.redis_client: Optional[aioredis.Redis] = None
-        self.enabled = bool(self.redis_url)
+        self.redis_client = None
+        self.enabled = bool(self.redis_url) and REDIS_AVAILABLE
+
+        if self.redis_url and not REDIS_AVAILABLE:
+            print("⚠️  Redis not installed - caching disabled (install redis>=5.0.0 to enable)")
 
         # TTL configuration (in seconds)
         self.ttl_classification = int(os.getenv("CACHE_TTL_CLASSIFICATION", "3600"))  # 1 hour
@@ -51,7 +61,10 @@ class CacheManager:
     async def initialize(self):
         """Initialize Redis connection"""
         if not self.enabled:
-            print("⚠️  Cache disabled: REDIS_URL not configured")
+            if not REDIS_AVAILABLE:
+                print("⚠️  Cache disabled: redis package not installed")
+            elif not self.redis_url:
+                print("⚠️  Cache disabled: REDIS_URL not configured")
             return
 
         try:

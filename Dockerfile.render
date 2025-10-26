@@ -94,7 +94,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
 RUN echo "🐍 Verifying Python packages..." && \
     (python -c "import fastapi" && echo "  ✅ fastapi" || echo "  ❌ fastapi MISSING") && \
     (python -c "import anthropic" && echo "  ✅ anthropic" || echo "  ❌ anthropic MISSING") && \
-    (python -c "import redis" && echo "  ✅ redis" || echo "  ❌ redis MISSING") && \
+    (python -c "import redis" && echo "  ✅ redis (optional)" || echo "  ⚠️  redis not installed (optional - for caching)") && \
     (python -c "import slowapi" && echo "  ✅ slowapi" || echo "  ❌ slowapi MISSING") && \
     (python -c "import sqlalchemy" && echo "  ✅ sqlalchemy" || echo "  ❌ sqlalchemy MISSING") && \
     (python -c "import asyncpg" && echo "  ✅ asyncpg" || echo "  ❌ asyncpg MISSING") && \
