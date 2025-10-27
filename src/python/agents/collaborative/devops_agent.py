@@ -12,7 +12,14 @@ from utils.telemetry import trace_operation, log_event, log_metric, log_error
 class DevOpsEngineerAgent(BaseAgent):
     """DevOps Engineer specializing in deployment and infrastructure"""
 
-    def __init__(self, mcp_servers: Dict = None):
+    def __init__(self, mcp_servers: Dict = None, project_manager=None):
+        """
+        Initialize DevOpsEngineerAgent
+
+        Args:
+            mcp_servers: Available MCP servers (should include Netlify MCP)
+            project_manager: ProjectDatabaseManager instance for retrieving Neon connection info
+        """
         agent_card = AgentCard(
             agent_id="devops_001",
             name="DevOps Engineer Agent",
@@ -311,6 +318,57 @@ Before ANY deployment, you MUST ensure code is properly version controlled on Gi
    - ✅ HTTPS is working
    - ✅ Environment variables are set (if needed)
 
+**🔥 CRITICAL: PRISMA DATABASE_URL HANDLING (REQUIRED FOR DATABASE APPS) 🔥**
+
+**IMPORTANT**: If the webapp uses Prisma ORM or requires a database, you MUST set DATABASE_URL in Netlify environment variables BEFORE deploying!
+
+**How to Detect Database Apps:**
+- Check if implementation uses Prisma (@prisma/client in package.json)
+- Check if backend_spec includes database_schema
+- Check if task metadata has project_id (indicator of database usage)
+
+**WHERE TO GET DATABASE_URL:**
+
+The Backend Agent creates a dedicated Neon PostgreSQL project and persists connection strings to the database. Retrieve them using:
+
+**Method 1: From Task Metadata** (immediate deployment after backend creation)
+```python
+database_connection = task.metadata.get("database_connection")
+if database_connection:
+    database_url_pooled = database_connection["database_url_pooled"]
+```
+
+**Method 2: From ProjectMetadata Table** (restart/resume scenario)
+```python
+if self.project_manager and task.metadata.get("project_id"):
+    connection_info = await self.project_manager.get_neon_connection(
+        task.metadata["project_id"]
+    )
+    if connection_info:
+        database_url_pooled = connection_info["database_url_pooled"]
+        database_url = connection_info["database_url"]
+```
+
+**DEPLOYMENT STEPS FOR DATABASE APPS:**
+
+1. **Retrieve DATABASE_URL** (with fallback for restarts)
+2. **Push code to GitHub**
+3. **Create/get Netlify site**
+4. **SET DATABASE_URL in Netlify env vars** (BEFORE deploying!)
+   - Use: `mcp__netlify__set-env-vars`
+   - Key: `DATABASE_URL`
+   - Value: `database_url_pooled` (the pooled connection string)
+5. **Verify environment variable was set**
+6. **Configure netlify.toml**
+7. **Deploy to Netlify**
+
+**Why This Matters:**
+- Prisma runs `prisma generate` during build (via postinstall hook)
+- `prisma generate` requires DATABASE_URL environment variable
+- Without it, build fails with "DATABASE_URL environment variable not found"
+- Connection strings persist in database → survives server restarts
+- Enables seamless conversation resumption
+
 **DEPLOYMENT PRIORITY ORDER:**
 1. GitHub repository setup and code push (FIRST AND MANDATORY)
 2. **Generate netlify.toml with NPM_FLAGS = "--include=dev"** (ABSOLUTELY MANDATORY!)
@@ -343,6 +401,9 @@ Focus on: GitHub → netlify.toml with NPM_FLAGS → Deploy → **BUILD LOG ANAL
             system_prompt=system_prompt,
             mcp_servers=mcp_servers
         )
+
+        # Store project manager for retrieving Neon connection info
+        self.project_manager = project_manager
 
     def _build_research_prompt(self, task: Task) -> str:
         """Build research prompt for DevOps deployment"""

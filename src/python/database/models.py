@@ -178,6 +178,15 @@ class ProjectMetadata(Base):
     tables_created: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
     schema_version: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Neon PostgreSQL connection information (for webapp deployment)
+    # These fields store the dedicated Neon project created for each webapp
+    neon_project_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "ep-cool-meadow-123456"
+    neon_database_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Regular connection string
+    neon_database_url_pooled: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Pooled connection (for serverless)
+    neon_region: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # e.g., "aws-us-east-1"
+    neon_branch_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "br-main-xyz"
+    neon_database_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "neondb"
+
     # Project status
     status: Mapped[str] = mapped_column(String(20), default="active")  # active, archived, deleted
 

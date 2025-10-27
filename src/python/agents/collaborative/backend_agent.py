@@ -88,9 +88,30 @@ When designing backends:
 7. Include API documentation with examples
 8. Consider performance (indexes, caching, query optimization)
 
-**Database Operations**:
-You have access to a project-isolated PostgreSQL schema. Each project gets its own schema
-for data isolation. You can safely create, modify, and delete tables within your project's schema.
+**Database Operations & Neon PostgreSQL Integration**:
+
+You have access to Neon MCP tools to create dedicated PostgreSQL databases for webapps:
+
+1. **Automatic Neon Project Creation**:
+   - For every webapp with a database, a dedicated Neon PostgreSQL project is created
+   - This happens automatically when you specify an ORM (especially Prisma) or database schema
+   - The system calls mcp__neon__create_project and retrieves connection strings
+   - Connection strings are persisted in the database (survive server restarts)
+
+2. **Database Connection Strings**:
+   - `database_url`: Regular connection (for migrations, admin operations)
+   - `database_url_pooled`: Pooled connection (for serverless/Netlify deployment)
+   - Format: postgresql://user:pass@ep-xyz[-pooler].region.aws.neon.tech/neondb
+
+3. **Deployment Integration**:
+   - DevOps Agent will automatically set DATABASE_URL in Netlify environment variables
+   - This allows Prisma builds to succeed (prisma generate needs DATABASE_URL)
+   - Your backend code should reference process.env.DATABASE_URL
+
+4. **Persistence**:
+   - Connection strings saved to ProjectMetadata table
+   - Conversations can resume after server restarts
+   - Customers can continue where they left off
 
 **Output Format**:
 Always provide structured responses that include:
@@ -98,8 +119,15 @@ Always provide structured responses that include:
 - SQL migration scripts
 - API endpoint specifications
 - Implementation code
-- Setup instructions
+- Setup instructions (including DATABASE_URL usage)
 - Security considerations
+- database_connection field (automatically added with Neon connection info)
+
+**When Using Prisma**:
+- Specify `"orm": "Prisma"` in backend_spec
+- Generate prisma/schema.prisma file
+- Reference env("DATABASE_URL") in datasource db
+- System will automatically create Neon project and provide connection strings
 
 Be thorough and professional. Include error handling, validation, and documentation.
 """
@@ -348,6 +376,88 @@ Create a detailed, step-by-step implementation plan for building this backend.
 Create a comprehensive, actionable plan that can be directly implemented.
 """
 
+    async def _create_neon_project(self, task: Task, project_id: str) -> Dict[str, Any]:
+        """
+        Create a dedicated Neon PostgreSQL project for this webapp using Neon MCP
+
+        This creates an independent database that:
+        - Lives outside the orchestrator system
+        - Can be deployed with the webapp
+        - Persists across server restarts (saved in ProjectMetadata)
+        - Survives agent cleanups
+
+        Args:
+            task: The backend development task
+            project_id: Our internal project ID
+
+        Returns:
+            Dict with Neon connection information
+        """
+        print(f"🗄️  [BACKEND] Creating dedicated Neon database...")
+
+        # Generate a safe project name for Neon
+        project_name = f"webapp-{project_id[-8:]}"  # Last 8 chars of project ID
+
+        # Prompt Claude to use Neon MCP to create project
+        neon_prompt = f"""Create a new Neon PostgreSQL project for this webapp deployment.
+
+**Task**: {task.description[:100]}
+**Project Name**: {project_name}
+**Region**: aws-us-east-1 (or closest available)
+**PostgreSQL Version**: 16
+
+Use the Neon MCP tool to create the project: mcp__neon__create_project
+
+After creating the project, return the connection information in this exact JSON format:
+{{
+  "neon_project_id": "the project ID from Neon (starts with ep-)",
+  "database_url": "the regular connection string",
+  "database_url_pooled": "the pooled connection string (replace host with host-pooler)",
+  "region": "the AWS region",
+  "branch_id": "the main branch ID (starts with br-)",
+  "database_name": "neondb"
+}}
+
+**IMPORTANT**: For database_url_pooled, take the regular connection string and add '-pooler' to the hostname.
+Example: postgresql://user:pass@ep-abc-123.us-east-1.aws.neon.tech/neondb
+Becomes: postgresql://user:pass@ep-abc-123-pooler.us-east-1.aws.neon.tech/neondb
+"""
+
+        try:
+            # Call Neon MCP via Claude SDK
+            response = await self.claude_sdk.send_message(neon_prompt)
+
+            # Extract JSON from response
+            neon_info = self._extract_json_from_response(response)
+
+            if not neon_info or "neon_project_id" not in neon_info:
+                print(f"   ⚠️  Neon project creation failed or returned invalid format")
+                return None
+
+            print(f"   ✅ Neon project created: {neon_info['neon_project_id']}")
+            print(f"   📍 Region: {neon_info.get('region', 'unknown')}")
+
+            # Save to database for persistence
+            if self.project_manager:
+                await self.project_manager.update_neon_connection(
+                    project_id=project_id,
+                    neon_project_id=neon_info["neon_project_id"],
+                    database_url=neon_info["database_url"],
+                    database_url_pooled=neon_info["database_url_pooled"],
+                    region=neon_info.get("region", "aws-us-east-1"),
+                    branch_id=neon_info.get("branch_id"),
+                    database_name=neon_info.get("database_name", "neondb")
+                )
+                print(f"   💾 Connection strings saved to database (survives restarts)")
+
+            return neon_info
+
+        except Exception as e:
+            log_error(e, "backend_agent_create_neon_project",
+                     task_id=task.task_id, project_id=project_id)
+            print(f"   ❌ Failed to create Neon project: {e}")
+            return None
+
     async def execute_task(self, task: Task) -> Dict[str, Any]:
         """
         Execute backend development task
@@ -357,12 +467,13 @@ Create a comprehensive, actionable plan that can be directly implemented.
         - API endpoint implementation
         - Authentication/authorization
         - Validation and error handling
+        - Dedicated Neon PostgreSQL database
 
         Args:
             task: Backend development task
 
         Returns:
-            Backend implementation specification
+            Backend implementation specification with database connection info
         """
         with trace_operation(
             "backend_agent_execute_task",
@@ -542,6 +653,38 @@ Be thorough and production-ready. Include all necessary code, configurations, an
                 # Log metrics
                 log_metric("backend_agent.tables_created", len(backend_impl.get("database_schema", {}).get("tables", [])))
                 log_metric("backend_agent.endpoints_created", len(backend_impl.get("api_endpoints", [])))
+
+                # Create dedicated Neon database for webapp deployment
+                # This provides independent DATABASE_URL for Netlify deployment
+                project_id = task.metadata.get("project_id") if task.metadata else None
+                database_connection = None
+
+                if project_id:
+                    # Check if this backend uses Prisma or requires external database
+                    uses_prisma = backend_impl.get("backend_spec", {}).get("orm") == "Prisma"
+
+                    # Create Neon project for any backend that needs external database
+                    if uses_prisma or backend_impl.get("database_schema"):
+                        database_connection = await self._create_neon_project(task, project_id)
+
+                        if database_connection:
+                            backend_impl["database_connection"] = database_connection
+                            backend_impl["deployment_instructions"] = [
+                                "DATABASE_URL has been created and saved",
+                                "DevOps Agent will automatically set it in Netlify environment variables",
+                                "Connection survives server restarts (persisted in ProjectMetadata table)",
+                                f"Neon Project: {database_connection.get('neon_project_id')}",
+                                f"Region: {database_connection.get('region')}"
+                            ]
+                        else:
+                            backend_impl["database_connection"] = None
+                            backend_impl["deployment_instructions"] = [
+                                "⚠️  Neon database creation failed",
+                                "You may need to create database manually",
+                                "Or retry the backend task"
+                            ]
+                else:
+                    print("   ⚠️  No project_id in task metadata, skipping Neon project creation")
 
                 return backend_impl
 

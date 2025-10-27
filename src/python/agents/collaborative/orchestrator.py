@@ -259,7 +259,7 @@ class CollaborativeOrchestrator:
         elif agent_type == "qa":
             agent = QAEngineerAgent(self.mcp_servers)
         elif agent_type == "devops":
-            agent = DevOpsEngineerAgent(self.mcp_servers)
+            agent = DevOpsEngineerAgent(self.mcp_servers, project_manager=project_manager)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -2279,7 +2279,12 @@ If build fails:
 - Return detailed error report for Frontend to fix
 
 If successful, return the live deployment URL.""",
-                    metadata={"implementation": current_implementation, "design_spec": design_spec},
+                    metadata={
+                        "implementation": current_implementation,
+                        "design_spec": design_spec,
+                        "project_id": self.project_id,  # For database connection lookup
+                        "database_connection": self.current_backend_spec.get("database_connection") if self.current_backend_spec else None  # Neon connection strings
+                    },
                     priority="high",
                     cleanup_after=False,  # Keep DevOps alive for retries
                     notify_user=True

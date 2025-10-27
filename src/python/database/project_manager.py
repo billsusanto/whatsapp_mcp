@@ -227,6 +227,98 @@ class ProjectDatabaseManager:
 
             return list(projects)
 
+    async def update_neon_connection(
+        self,
+        project_id: str,
+        neon_project_id: str,
+        database_url: str,
+        database_url_pooled: str,
+        region: str,
+        branch_id: Optional[str] = None,
+        database_name: str = "neondb"
+    ) -> ProjectMetadata:
+        """
+        Update Neon PostgreSQL connection information for a project
+
+        This method persists the Neon connection strings so they survive:
+        - Server restarts
+        - Agent cleanups
+        - Conversation resumptions
+
+        Args:
+            project_id: Project identifier
+            neon_project_id: Neon project ID (e.g., "ep-cool-meadow-123456")
+            database_url: Regular connection string (for migrations)
+            database_url_pooled: Pooled connection string (for serverless)
+            region: Neon region (e.g., "aws-us-east-1")
+            branch_id: Neon branch ID (optional)
+            database_name: Database name (default: "neondb")
+
+        Returns:
+            Updated ProjectMetadata
+        """
+        async for db_session in get_session():
+            stmt = select(ProjectMetadata).where(
+                ProjectMetadata.project_id == project_id
+            )
+            result = await db_session.execute(stmt)
+            project = result.scalar_one_or_none()
+
+            if not project:
+                raise ValueError(f"Project not found: {project_id}")
+
+            # Update Neon connection fields
+            project.neon_project_id = neon_project_id
+            project.neon_database_url = database_url
+            project.neon_database_url_pooled = database_url_pooled
+            project.neon_region = region
+            project.neon_branch_id = branch_id
+            project.neon_database_name = database_name
+            project.updated_at = datetime.utcnow()
+
+            await db_session.commit()
+            await db_session.refresh(project)
+
+            print(f"✅ Saved Neon connection for project {project_id}")
+            print(f"   Neon Project: {neon_project_id}")
+            print(f"   Region: {region}")
+
+            # Log event
+            log_event(
+                "project.neon_connection_saved",
+                project_id=project_id,
+                neon_project_id=neon_project_id,
+                region=region
+            )
+
+            return project
+
+    async def get_neon_connection(self, project_id: str) -> Optional[Dict[str, str]]:
+        """
+        Retrieve Neon connection information for a project
+
+        This enables conversation resumption after restarts/cleanups
+
+        Args:
+            project_id: Project identifier
+
+        Returns:
+            Dict with connection info or None if not set
+        """
+        project = await self.get_project(project_id)
+
+        if not project or not project.neon_project_id:
+            return None
+
+        return {
+            "neon_project_id": project.neon_project_id,
+            "database_url": project.neon_database_url,
+            "database_url_pooled": project.neon_database_url_pooled,
+            "region": project.neon_region,
+            "branch_id": project.neon_branch_id,
+            "database_name": project.neon_database_name
+        }
+
     async def update_project_spec(
         self,
         project_id: str,

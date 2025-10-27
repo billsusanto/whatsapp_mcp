@@ -48,16 +48,66 @@ class WhatsAppClient:
 
         return phone
 
-    def send_message(self, to: str, text: str) -> Dict:
+    def _split_message(self, text: str, max_length: int = 4096) -> list[str]:
         """
-        Send a text message to a WhatsApp user
+        Split a long message into chunks that fit WhatsApp's character limit.
+        Tries to split at natural boundaries (paragraphs, sentences, spaces).
+
+        Args:
+            text: The message text to split
+            max_length: Maximum characters per chunk (default: 4096)
+
+        Returns:
+            List of message chunks
+        """
+        if len(text) <= max_length:
+            return [text]
+
+        chunks = []
+        remaining = text
+
+        while len(remaining) > max_length:
+            # Try to find a good split point
+            chunk = remaining[:max_length]
+
+            # Try to split at paragraph (double newline)
+            split_idx = chunk.rfind('\n\n')
+            if split_idx > max_length * 0.5:  # Only use if we're past halfway
+                split_idx += 2  # Include the newlines
+            # Try to split at single newline
+            elif (split_idx := chunk.rfind('\n')) > max_length * 0.5:
+                split_idx += 1
+            # Try to split at sentence end
+            elif (split_idx := max(chunk.rfind('. '), chunk.rfind('! '), chunk.rfind('? '))) > max_length * 0.5:
+                split_idx += 2  # Include period and space
+            # Try to split at space
+            elif (split_idx := chunk.rfind(' ')) > max_length * 0.5:
+                split_idx += 1
+            else:
+                # Force split at max_length
+                split_idx = max_length
+
+            chunks.append(remaining[:split_idx].strip())
+            remaining = remaining[split_idx:].strip()
+
+        # Add remaining text
+        if remaining:
+            chunks.append(remaining)
+
+        return chunks
+
+    def send_message(self, to: str, text: str, auto_split: bool = True) -> Dict:
+        """
+        Send a text message to a WhatsApp user.
+        Automatically splits messages longer than 4096 characters into multiple messages.
 
         Args:
             to: Phone number in international format (e.g., "+1234567890" or "1234567890")
             text: Message text to send
+            auto_split: If True, automatically split long messages (default: True)
 
         Returns:
-            API response dict
+            API response dict (last message sent if split into multiple)
         """
         # Format phone number
         to = self._format_phone_number(to)
@@ -66,9 +116,40 @@ class WhatsAppClient:
         if not text or not text.strip():
             raise ValueError("Message text cannot be empty")
 
-        # WhatsApp has a character limit
+        # WhatsApp has a 4096 character limit
         if len(text) > 4096:
-            raise ValueError(f"Message text too long ({len(text)} chars). Maximum is 4096 characters")
+            if auto_split:
+                print(f"⚠️  Message too long ({len(text)} chars). Splitting into multiple messages...")
+                chunks = self._split_message(text)
+                print(f"📨 Sending {len(chunks)} messages...")
+
+                last_response = None
+                for i, chunk in enumerate(chunks, 1):
+                    print(f"📤 Sending part {i}/{len(chunks)} ({len(chunk)} chars)")
+                    last_response = self._send_single_message(to, chunk)
+                    # Add small delay between messages to avoid rate limiting
+                    if i < len(chunks):
+                        import time
+                        time.sleep(0.5)
+
+                print(f"✅ All {len(chunks)} messages sent successfully")
+                return last_response
+            else:
+                raise ValueError(f"Message text too long ({len(text)} chars). Maximum is 4096 characters")
+
+        return self._send_single_message(to, text)
+
+    def _send_single_message(self, to: str, text: str) -> Dict:
+        """
+        Send a single message (internal method, assumes text is within limit)
+
+        Args:
+            to: Formatted phone number
+            text: Message text (must be <= 4096 chars)
+
+        Returns:
+            API response dict
+        """
 
         payload = {
             "messaging_product": "whatsapp",
@@ -84,7 +165,6 @@ class WhatsAppClient:
 
         try:
             print(f"Sending message to {to}: {text[:50]}...")
-            print(f"DEBUG - Payload: {payload}")
             response = requests.post(self.messages_url, json=payload, headers=headers)
             response.raise_for_status()
 
