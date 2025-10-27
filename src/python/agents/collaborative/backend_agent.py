@@ -398,29 +398,42 @@ Create a comprehensive, actionable plan that can be directly implemented.
         # Generate a safe project name for Neon
         project_name = f"webapp-{project_id[-8:]}"  # Last 8 chars of project ID
 
-        # Prompt Claude to use Neon MCP to create project
-        neon_prompt = f"""Create a new Neon PostgreSQL project for this webapp deployment.
+        # Prompt Claude to use Neon MCP tools to create project and get connection strings
+        neon_prompt = f"""Create a new Neon PostgreSQL project and retrieve its connection strings.
 
-**Task**: {task.description[:100]}
 **Project Name**: {project_name}
-**Region**: aws-us-east-1 (or closest available)
-**PostgreSQL Version**: 16
 
-Use the Neon MCP tool to create the project: mcp__neon__create_project
+Follow these steps using the Neon MCP tools:
 
-After creating the project, return the connection information in this exact JSON format:
+1. **Create the project**:
+   - Use tool: `create_project`
+   - Parameter: `project_name = "{project_name}"`
+   - This returns the `project_id`
+
+2. **Get project details**:
+   - Use tool: `describe_project`
+   - Parameter: `project_id` (from step 1)
+   - This returns project details including the `branch_id` (usually the main branch)
+
+3. **Get connection string**:
+   - Use tool: `get_connection_string`
+   - Parameters: `project_id` and `branch_id` (from step 2)
+   - This returns the database connection string
+
+After completing all steps, return the information in this exact JSON format:
 {{
-  "neon_project_id": "the project ID from Neon (starts with ep-)",
-  "database_url": "the regular connection string",
-  "database_url_pooled": "the pooled connection string (replace host with host-pooler)",
-  "region": "the AWS region",
-  "branch_id": "the main branch ID (starts with br-)",
+  "neon_project_id": "the project ID (e.g., ep-cool-meadow-123456)",
+  "database_url": "the connection string from get_connection_string",
+  "database_url_pooled": "the pooled version (add -pooler after project ID in hostname)",
+  "region": "extract from connection string hostname (e.g., us-east-1)",
+  "branch_id": "the branch ID from describe_project (e.g., br-main-xyz)",
   "database_name": "neondb"
 }}
 
-**IMPORTANT**: For database_url_pooled, take the regular connection string and add '-pooler' to the hostname.
-Example: postgresql://user:pass@ep-abc-123.us-east-1.aws.neon.tech/neondb
-Becomes: postgresql://user:pass@ep-abc-123-pooler.us-east-1.aws.neon.tech/neondb
+**IMPORTANT**: For database_url_pooled, modify the hostname by adding '-pooler' after the project ID.
+Example:
+- Original: postgresql://user:pass@ep-abc-123.us-east-1.aws.neon.tech/neondb
+- Pooled:   postgresql://user:pass@ep-abc-123-pooler.us-east-1.aws.neon.tech/neondb
 """
 
         try:
