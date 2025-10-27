@@ -267,6 +267,30 @@ IMPORTANT:
                 print("✅ Claude SDK client initialized successfully")
                 print(f"   Model: {self.model} (Sonnet 4.5)")
                 print(f"   Active MCP servers: {list(mcp_servers.keys()) if mcp_servers else 'None'}")
+
+                # Diagnostic: Try to get available tools after initialization
+                try:
+                    if hasattr(self.client, 'get_available_tools'):
+                        tools = await self.client.get_available_tools()
+                        print(f"   Available tools count: {len(tools) if tools else 0}")
+                        if tools:
+                            # Group tools by MCP server
+                            tools_by_server = {}
+                            for tool in tools:
+                                tool_name = tool.get('name', 'unknown')
+                                # Tool names are like mcp__server__toolname
+                                parts = tool_name.split('__')
+                                if len(parts) >= 2 and parts[0] == 'mcp':
+                                    server_name = parts[1]
+                                    if server_name not in tools_by_server:
+                                        tools_by_server[server_name] = []
+                                    tools_by_server[server_name].append(parts[2] if len(parts) > 2 else 'unknown')
+
+                            for server_name, tool_list in tools_by_server.items():
+                                print(f"     • {server_name}: {len(tool_list)} tools ({', '.join(tool_list[:3])}...)")
+                except Exception as diag_error:
+                    print(f"   (Tool diagnostic failed: {diag_error})")
+
             except Exception as e:
                 print(f"❌ Error initializing Claude SDK client: {e}")
                 import traceback
