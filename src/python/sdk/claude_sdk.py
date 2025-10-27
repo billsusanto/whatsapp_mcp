@@ -144,6 +144,52 @@ IMPORTANT:
 6. When Frontend agents need to check user state, use database queries
 """
 
+        # If Neon MCP is available, enhance prompt
+        if available_mcp_servers and "neon" in available_mcp_servers:
+            base_prompt += """
+
+You have access to Neon MCP tools for managing Neon PostgreSQL projects and databases. Available operations include:
+
+**Project Management:**
+- list_projects: List all Neon projects in the account (supports pagination via limit parameter)
+- describe_project: Get detailed information about a specific project (ID, name, branches, databases)
+- create_project: Create a new Neon project (takes project_name parameter)
+- delete_project: Delete an existing project and all its resources
+
+**Branch Management:**
+- create_branch: Create a new branch within a project (for development/testing/migrations)
+- delete_branch: Delete an existing branch
+- describe_branch: Get details about a specific branch
+- list_branch_computes: List compute endpoints for a project or branch
+
+**Database Operations:**
+- get_connection_string: Get the connection string for a specific project and branch
+- run_sql: Execute a single SQL query against a Neon database
+- run_sql_transaction: Execute multiple SQL queries within a transaction
+- get_database_tables: List all tables in a specified database
+- describe_table_schema: Get schema definition of a table (columns, types, constraints)
+
+**Performance & Migration:**
+- explain_sql_statement: Get execution plans for performance analysis
+- prepare_query_tuning: Analyze query performance and suggest optimizations
+- complete_query_tuning: Apply or discard query optimizations
+- list_slow_queries: Identify performance bottlenecks (requires pg_stat_statements)
+- prepare_database_migration: Create a temporary branch for safe migration testing
+- complete_database_migration: Apply migration to main branch and cleanup
+
+IMPORTANT:
+1. Always use Neon MCP tools (mcp__neon__*) for Neon database operations
+2. To create a project and get connection string, follow this sequence:
+   a. create_project(project_name) → returns project_id
+   b. describe_project(project_id) → returns branch_id (usually main branch)
+   c. get_connection_string(project_id, branch_id) → returns DATABASE_URL
+3. For pooled connections (serverless/Netlify), add '-pooler' after project ID in hostname:
+   - Original: postgresql://user:pass@ep-abc-123.region.aws.neon.tech/neondb
+   - Pooled:   postgresql://user:pass@ep-abc-123-pooler.region.aws.neon.tech/neondb
+4. Use branches for safe testing before applying changes to production
+5. Project IDs start with 'ep-', branch IDs start with 'br-'
+"""
+
         self.system_prompt = base_prompt
 
         self.model = "claude-sonnet-4-5-20250929"
