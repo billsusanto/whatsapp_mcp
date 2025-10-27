@@ -170,13 +170,19 @@ except Exception as e:
 
 # Add Neon MCP if enabled
 enable_neon = os.getenv("ENABLE_NEON_MCP", "false").lower() == "true"
+neon_mcp_error = None
 if enable_neon:
     try:
         from neon_mcp.server import create_neon_mcp_config
         mcp_config["neon"] = create_neon_mcp_config()
         print("✅ Neon MCP configured")
     except Exception as e:
+        neon_mcp_error = str(e)
         print(f"⚠️  Neon MCP not available: {e}")
+        import traceback
+        traceback.print_exc()
+else:
+    print(f"ℹ️  Neon MCP disabled (ENABLE_NEON_MCP={os.getenv('ENABLE_NEON_MCP', 'not set')})")
 
 # Initialize WhatsApp adapter
 whatsapp_adapter = WhatsAppAdapter(whatsapp_client)
@@ -248,6 +254,18 @@ async def health_check():
     # Mask API key for security
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
+    # Neon MCP diagnostics
+    neon_status = {
+        "enabled_env_var": os.getenv("ENABLE_NEON_MCP", "not set"),
+        "enabled": "neon" in mcp_config,
+        "api_key_configured": bool(os.getenv("NEON_API_KEY")),
+        "api_key_masked": SecretManager.mask_secret(os.getenv("NEON_API_KEY")) if os.getenv("NEON_API_KEY") else None
+    }
+
+    # Add error if Neon failed to load
+    if neon_mcp_error:
+        neon_status["error"] = neon_mcp_error
+
     return {
         "status": health_data["status"],
         "service": "whatsapp-mcp",
@@ -260,6 +278,7 @@ async def health_check():
         "github_token_configured": bool(os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")),
         "netlify_mcp_enabled": "netlify" in mcp_config,
         "netlify_token_configured": bool(os.getenv("NETLIFY_PERSONAL_ACCESS_TOKEN")),
+        "neon_mcp_status": neon_status,
         "multi_agent_enabled": agent_manager.multi_agent_enabled,
         "active_agents": agent_manager.get_active_agents_count(),
         "available_mcp_servers": list(mcp_config.keys()),
