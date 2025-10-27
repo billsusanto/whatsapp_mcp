@@ -44,17 +44,18 @@ def create_neon_mcp_config(api_key: Optional[str] = None) -> Dict[str, Any]:
 
     # Neon MCP server using npx with stdio transport
     # This matches the format expected by Claude Agent SDK
-    # Note: For MCP server integration (not standalone CLI), pass API key via env var
-    # This is the same pattern used by GitHub MCP and Netlify MCP
+    # NOTE: Neon MCP is DIFFERENT from GitHub/Netlify MCPs:
+    # - GitHub & Netlify: Use env vars (GITHUB_PERSONAL_ACCESS_TOKEN, NETLIFY_PERSONAL_ACCESS_TOKEN)
+    # - Neon: Uses "start" subcommand with API key as argument (official docs)
+    # See: https://neon.com/guides/claude-code-mcp-neon
     config = {
         "command": "npx",
         "args": [
             "-y",
-            "@neondatabase/mcp-server-neon"
-        ],
-        "env": {
-            "NEON_API_KEY": neon_api_key
-        }
+            "@neondatabase/mcp-server-neon",
+            "start",
+            neon_api_key
+        ]
     }
 
     print(f"✅ Neon MCP configured (stdio transport)")
