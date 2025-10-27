@@ -500,6 +500,48 @@ Classify this message into ONE of these categories:
         """Get number of active agents."""
         return len(self.agents)
 
+    def get_active_agents_details(self) -> list[dict]:
+        """
+        Get detailed information about active agents and orchestrators.
+
+        Returns:
+            List of dicts with agent details including:
+            - type: "single-agent" or "orchestrator"
+            - user_id: User identifier
+            - platform: Platform type (for orchestrators)
+            - state: Current state (for orchestrators)
+        """
+        details = []
+
+        # Get single-agent details
+        for user_id, agent in self.agents.items():
+            details.append({
+                "type": "single-agent",
+                "user_id": user_id,
+                "phone_number": getattr(agent, 'phone_number', user_id)
+            })
+
+        # Get orchestrator details
+        for user_id, orchestrator in self.orchestrators.items():
+            orchestrator_info = {
+                "type": "orchestrator",
+                "user_id": user_id,
+                "platform": getattr(orchestrator, 'platform', 'unknown'),
+                "is_active": getattr(orchestrator, 'is_active', False)
+            }
+
+            # Add current state if available
+            if hasattr(orchestrator, 'current_state'):
+                orchestrator_info["state"] = orchestrator.current_state
+
+            # Add project info if available
+            if hasattr(orchestrator, 'project_id'):
+                orchestrator_info["project_id"] = orchestrator.project_id
+
+            details.append(orchestrator_info)
+
+        return details
+
     async def cleanup_expired_sessions(self) -> int:
         """Cleanup expired sessions via session manager."""
         if hasattr(self.session_manager, 'cleanup_expired_sessions_async'):

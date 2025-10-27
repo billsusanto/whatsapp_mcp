@@ -439,8 +439,20 @@ async def periodic_cleanup():
 
             # Get current state
             active_agents = agent_manager.get_active_agents_count()
+            active_details = agent_manager.get_active_agents_details()
 
             print(f"✓ Cleanup complete - Expired sessions: {expired_count}, Active agents: {active_agents}")
+
+            # Show detailed info about active agents if any
+            if active_details:
+                print(f"📋 Active agent details:")
+                for agent_info in active_details:
+                    if agent_info["type"] == "single-agent":
+                        print(f"   • Single Agent - User: {agent_info['user_id']}")
+                    elif agent_info["type"] == "orchestrator":
+                        state_info = f", State: {agent_info.get('state', 'unknown')}" if 'state' in agent_info else ""
+                        project_info = f", Project: {agent_info.get('project_id', 'none')}" if 'project_id' in agent_info else ""
+                        print(f"   • Orchestrator - User: {agent_info['user_id']}, Platform: {agent_info.get('platform', 'unknown')}, Active: {agent_info.get('is_active', False)}{state_info}{project_info}")
 
         except Exception as e:
             print(f"❌ Error in periodic cleanup: {str(e)}")
