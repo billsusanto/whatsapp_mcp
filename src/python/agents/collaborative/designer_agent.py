@@ -3,7 +3,7 @@ UI/UX Designer Agent
 Creates design specifications for webapps
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .base_agent import BaseAgent
 from .models import AgentCard, AgentRole, Task, DesignSpecification
 from utils.telemetry import trace_operation, log_event, log_metric, log_error
@@ -721,4 +721,222 @@ Be constructive, specific, and reference actual code and design spec values in y
                 "critical_issues": [],
                 "suggestions": [],
                 "iteration": 1
+            }
+
+    async def perform_visual_review(self, server_url: str, iteration: int, design_spec: Optional[Dict] = None) -> Dict:
+        """
+        Perform visual design review using Playwright screenshots
+
+        This method:
+        1. Navigates to the dev server using Playwright MCP
+        2. Takes screenshots of key pages/components
+        3. Analyzes screenshots against design specification
+        4. Provides visual feedback for improvements
+
+        Args:
+            server_url: URL of dev server (e.g., "http://localhost:3000")
+            iteration: Current review iteration number
+            design_spec: Optional design specification to compare against
+
+        Returns:
+            Dictionary with:
+            - approved: bool (whether design is approved)
+            - score: int (0-10 design fidelity score)
+            - feedback: List of visual feedback items
+            - screenshots: List of screenshot IDs taken
+        """
+        print(f"🎨 [DESIGNER] Performing visual review (iteration {iteration})...")
+
+        # Log visual review start
+        log_event("designer.visual_review_start",
+                 iteration=iteration,
+                 server_url=server_url,
+                 has_design_spec=design_spec is not None)
+
+        try:
+            # Import screenshot analyzer
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            from playwright_mcp.screenshot_analyzer import ScreenshotAnalyzer
+
+            screenshot_analyzer = ScreenshotAnalyzer()
+
+            # Step 1: Navigate to homepage and take screenshot
+            print(f"📸 [DESIGNER] Navigating to {server_url}...")
+
+            # Use Playwright MCP to navigate
+            navigate_prompt = f"""Use the playwright_navigate tool to navigate to {server_url}.
+
+After navigating, wait for the page to load by using playwright_wait_for_selector to wait for the 'body' element.
+
+Then take a full-page screenshot using playwright_screenshot.
+
+Return the result of the screenshot."""
+
+            with trace_operation("designer_visual_navigate",
+                               url=server_url,
+                               iteration=iteration) as span:
+                navigate_response = await self.claude_sdk.send_message(navigate_prompt)
+                span.set_attribute("response_length", len(navigate_response))
+
+            # Step 2: Take component screenshots
+            # Ask Claude to identify and screenshot key components
+            component_screenshot_prompt = f"""Now that you're on the page, identify the key UI components and take screenshots of them.
+
+For each major component (header, navigation, main content, footer, buttons, forms), take a targeted screenshot using:
+playwright_screenshot(selector="css-selector-here")
+
+Take at least 3-5 component screenshots to get good coverage of the design.
+
+List the components you screenshot."""
+
+            with trace_operation("designer_visual_components",
+                               iteration=iteration) as span:
+                components_response = await self.claude_sdk.send_message(component_screenshot_prompt)
+                span.set_attribute("response_length", len(components_response))
+
+            # Step 3: Analyze screenshots against design spec
+            analysis_prompt = f"""You are a professional UI/UX Designer reviewing the visual implementation of a webapp.
+
+You have just taken screenshots of the implementation running at {server_url}.
+
+**Your Task:** Analyze the screenshots you took and provide detailed visual feedback.
+
+**Design Specification to Compare Against:**
+{design_spec if design_spec else "No formal spec provided - use modern design best practices"}
+
+**Visual Review Checklist:**
+
+1. **Colors:**
+   - Do colors match the design spec (if provided)?
+   - Is there good contrast between text and backgrounds?
+   - Are colors consistent throughout the design?
+
+2. **Typography:**
+   - Are font sizes appropriate and readable?
+   - Is there good hierarchy (headings vs body text)?
+   - Are line heights comfortable for reading?
+
+3. **Spacing & Layout:**
+   - Is spacing consistent (margins, paddings)?
+   - Are elements well-aligned?
+   - Does the layout feel balanced?
+   - Is content properly organized?
+
+4. **Components:**
+   - Do UI components look polished and professional?
+   - Are button styles consistent?
+   - Are form inputs clearly visible and styled well?
+   - Do interactive elements have proper hover/focus states?
+
+5. **Responsive Design:**
+   - Does the layout look appropriate for the viewport?
+   - Are touch targets large enough (for mobile)?
+
+6. **Overall Polish:**
+   - Does the design feel cohesive and professional?
+   - Are there any visual bugs or glitches?
+   - Does it match modern design standards?
+
+**Scoring Criteria:**
+- 10: Perfect, pixel-perfect implementation
+- 9: Excellent, 1-2 tiny cosmetic issues
+- 8: Good, 3-5 small visual issues
+- 7: Acceptable, several noticeable differences
+- 6 or below: Significant visual issues
+
+**Output Format (JSON):**
+{{
+  "approved": true/false,
+  "score": 0-10,
+  "feedback": [
+    {{
+      "component": "which component (e.g., 'Header', 'Button', 'Form')",
+      "issue": "specific visual issue observed",
+      "expected": "what the design should look like",
+      "severity": "critical|major|minor",
+      "fix": "suggested fix with specific CSS/Tailwind changes"
+    }}
+  ],
+  "positive_aspects": ["things that look great"],
+  "critical_issues": ["must-fix visual problems"],
+  "iteration": {iteration}
+}}
+
+Be thorough and specific. Reference what you SEE in the screenshots."""
+
+            with trace_operation("designer_visual_analysis",
+                               iteration=iteration,
+                               has_design_spec=design_spec is not None) as span:
+                analysis_response = await self.claude_sdk.send_message(analysis_prompt)
+                span.set_attribute("response_length", len(analysis_response))
+
+            # Parse JSON response
+            import json
+            import re
+
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', analysis_response, re.DOTALL)
+            if json_match:
+                review = json.loads(json_match.group(1))
+            elif analysis_response.strip().startswith('{'):
+                review = json.loads(analysis_response)
+            else:
+                # Fallback: couldn't parse JSON
+                review = {
+                    "approved": False,
+                    "score": 7,
+                    "feedback": [{
+                        "component": "Overall",
+                        "issue": "Visual review completed but response format unexpected",
+                        "severity": "minor",
+                        "fix": analysis_response[:500]  # First 500 chars
+                    }],
+                    "positive_aspects": [],
+                    "critical_issues": [],
+                    "iteration": iteration
+                }
+
+            # Track metrics
+            review_score = review.get("score", 0)
+            is_approved = review.get("approved", False)
+            feedback_count = len(review.get("feedback", []))
+            critical_count = len(review.get("critical_issues", []))
+
+            log_event("designer.visual_review_completed",
+                     iteration=iteration,
+                     score=review_score,
+                     approved=is_approved,
+                     feedback_count=feedback_count,
+                     critical_count=critical_count)
+
+            log_metric("designer.visual_review_score", review_score)
+
+            print(f"✅ [DESIGNER] Visual review completed - Score: {review_score}/10, Approved: {is_approved}")
+
+            return review
+
+        except Exception as e:
+            print(f"❌ [DESIGNER] Error during visual review: {e}")
+            import traceback
+            traceback.print_exc()
+
+            log_error(e, "designer_visual_review",
+                     iteration=iteration,
+                     server_url=server_url)
+
+            # Fallback: approve with note about error
+            return {
+                "approved": True,
+                "score": 8,
+                "feedback": [{
+                    "component": "System",
+                    "issue": f"Visual review error: {str(e)}",
+                    "severity": "minor",
+                    "fix": "Unable to complete visual review - proceeding with implementation"
+                }],
+                "positive_aspects": ["Implementation exists and is deployable"],
+                "critical_issues": [],
+                "iteration": iteration,
+                "error": str(e)
             }

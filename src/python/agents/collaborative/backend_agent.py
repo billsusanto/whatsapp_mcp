@@ -101,7 +101,7 @@ You have access to Neon MCP tools to create dedicated PostgreSQL databases for w
 2. **Database Connection Strings**:
    - `database_url`: Regular connection (for migrations, admin operations)
    - `database_url_pooled`: Pooled connection (for serverless/Netlify deployment)
-   - Format: postgresql://user:pass@ep-xyz[-pooler].region.aws.neon.tech/neondb
+   - Format: postgresql://[USERNAME]:[PASSWORD]@[HOST]/[DATABASE]
 
 3. **Deployment Integration**:
    - DevOps Agent will automatically set DATABASE_URL in Netlify environment variables
@@ -432,8 +432,8 @@ After completing all steps, return the information in this exact JSON format:
 
 **IMPORTANT**: For database_url_pooled, modify the hostname by adding '-pooler' after the project ID.
 Example:
-- Original: postgresql://user:pass@ep-abc-123.us-east-1.aws.neon.tech/neondb
-- Pooled:   postgresql://user:pass@ep-abc-123-pooler.us-east-1.aws.neon.tech/neondb
+- Original: postgresql://[USER]:[PASS]@ep-[PROJECT-ID].[REGION].aws.neon.tech/[DB]
+- Pooled:   postgresql://[USER]:[PASS]@ep-[PROJECT-ID]-pooler.[REGION].aws.neon.tech/[DB]
 """
 
         try:
@@ -599,6 +599,16 @@ Example:
         "path": "backend/requirements.txt",
         "language": "text",
         "content": "fastapi\\nuvicorn\\nsqlalchemy\\n..."
+      }},
+      {{
+        "path": "backend/.env.example",
+        "language": "text",
+        "content": "# Database Configuration\\nDATABASE_URL=postgresql://user:password@host:5432/database\\n\\n# API Configuration\\nAPI_SECRET_KEY=your_secret_key_here\\n..."
+      }},
+      {{
+        "path": "backend/.gitignore",
+        "language": "text",
+        "content": "# Environment variables (NEVER commit these)\\n.env\\n.env.local\\n.env.*.local\\n\\n# Python\\n__pycache__/\\n*.py[cod]\\n*.so\\nvenv/\\n*.egg-info/\\n\\n# Database\\n*.db\\n*.sqlite\\n"
       }}
     ]
   }},
@@ -619,11 +629,19 @@ Example:
     "Rate limiting on auth endpoints"
   ],
   "setup_instructions": [
-    "1. Install dependencies: pip install -r requirements.txt",
-    "2. Set DATABASE_URL environment variable",
-    "3. Run migrations: python -m alembic upgrade head",
-    "4. Start server: uvicorn main:app --reload",
-    "5. Access API docs at http://localhost:8000/docs"
+    "1. Copy .env.example to .env and fill in your credentials",
+    "2. Install dependencies: pip install -r requirements.txt",
+    "3. Set DATABASE_URL in .env file (never commit .env to git)",
+    "4. Run migrations: python -m alembic upgrade head",
+    "5. Start server: uvicorn main:app --reload",
+    "6. Access API docs at http://localhost:8000/docs"
+  ],
+  "security_notes": [
+    "IMPORTANT: Never commit .env files to version control",
+    "Add .env to .gitignore immediately",
+    "Use .env.example for documentation only (no real credentials)",
+    "All sensitive credentials must be loaded from environment variables",
+    "For production, use environment variables in your hosting platform"
   ],
   "testing_examples": [
     {{

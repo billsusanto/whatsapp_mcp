@@ -17,6 +17,7 @@ from .research_mixin import ResearchPlanningMixin
 # Import telemetry utilities
 from utils.telemetry import (
     trace_operation,
+    trace_agent_task_execution,
     measure_performance,
     log_event,
     log_metric,
@@ -201,16 +202,22 @@ class BaseAgent(ABC, ResearchPlanningMixin):
         """
         print(f"🔬 [{self.agent_card.name}] Executing with research & planning")
 
-        try:
-            # Phase 1 & 2: Research and Plan (with telemetry)
-            with trace_operation(
-                "Research & Planning Phase",
-                agent_id=self.agent_card.agent_id,
-                agent_name=self.agent_card.name,
-                task_id=task.task_id,
-                phase="research_and_planning"
-            ) as rp_span:
-                research, plan = await self.research_and_plan(task)
+        # Logfire: Trace entire task execution (outer span)
+        with trace_agent_task_execution(
+            agent_id=self.agent_card.agent_id,
+            task_type="research_and_plan",
+            task_description=task.description
+        ):
+            try:
+                # Phase 1 & 2: Research and Plan (with telemetry)
+                with trace_operation(
+                    "Research & Planning Phase",
+                    agent_id=self.agent_card.agent_id,
+                    agent_name=self.agent_card.name,
+                    task_id=task.task_id,
+                    phase="research_and_planning"
+                ) as rp_span:
+                    research, plan = await self.research_and_plan(task)
 
                 # Add research & planning metadata to span
                 if rp_span:
@@ -219,67 +226,67 @@ class BaseAgent(ABC, ResearchPlanningMixin):
                     rp_span.set_attribute("research_topics_count", len(research.keys()) if isinstance(research, dict) else 0)
                     rp_span.set_attribute("plan_components_count", len(plan.keys()) if isinstance(plan, dict) else 0)
 
-                # Log research completion
-                log_event(
-                    "agent_research_completed",
+                    # Log research completion
+                    log_event(
+                        "agent_research_completed",
+                        agent_id=self.agent_card.agent_id,
+                        agent_name=self.agent_card.name,
+                        task_id=task.task_id,
+                        research_topics=len(research.keys()) if isinstance(research, dict) else 0
+                    )
+
+                # Phase 3: Execute with plan (with telemetry)
+                with trace_operation(
+                    "Execution Phase",
                     agent_id=self.agent_card.agent_id,
                     agent_name=self.agent_card.name,
                     task_id=task.task_id,
-                    research_topics=len(research.keys()) if isinstance(research, dict) else 0
+                    phase="execution",
+                    has_research=True,
+                    has_plan=True
+                ) as exec_span:
+                    result = await self.execute_task_with_plan(task, research, plan)
+
+                    # Add execution metadata to span
+                    if exec_span and isinstance(result, dict):
+                        exec_span.set_attribute("execution_completed", True)
+                        exec_span.set_attribute("result_keys_count", len(result.keys()))
+
+                        # Track type-specific metrics
+                        if 'design_spec' in result:
+                            exec_span.set_attribute("execution_type", "design")
+                        elif 'implementation' in result:
+                            exec_span.set_attribute("execution_type", "implementation")
+                            if isinstance(result['implementation'], dict):
+                                exec_span.set_attribute("files_count", len(result['implementation'].get('files', [])))
+
+                # Add research & planning metadata to result
+                if isinstance(result, dict):
+                    result['research_used'] = True
+                    result['research_summary'] = research.get('research_summary', 'Research completed')
+                    result['plan_summary'] = plan.get('plan_summary', 'Plan created')
+
+                return result
+
+            except NotImplementedError:
+                # Agent hasn't implemented research & planning yet - fallback
+                print(f"   ⚠️  Research & planning not implemented, using direct execution")
+                log_event(
+                    "agent_research_fallback",
+                    agent_id=self.agent_card.agent_id,
+                    reason="not_implemented"
                 )
+                return await self.execute_task(task)
 
-            # Phase 3: Execute with plan (with telemetry)
-            with trace_operation(
-                "Execution Phase",
-                agent_id=self.agent_card.agent_id,
-                agent_name=self.agent_card.name,
-                task_id=task.task_id,
-                phase="execution",
-                has_research=True,
-                has_plan=True
-            ) as exec_span:
-                result = await self.execute_task_with_plan(task, research, plan)
-
-                # Add execution metadata to span
-                if exec_span and isinstance(result, dict):
-                    exec_span.set_attribute("execution_completed", True)
-                    exec_span.set_attribute("result_keys_count", len(result.keys()))
-
-                    # Track type-specific metrics
-                    if 'design_spec' in result:
-                        exec_span.set_attribute("execution_type", "design")
-                    elif 'implementation' in result:
-                        exec_span.set_attribute("execution_type", "implementation")
-                        if isinstance(result['implementation'], dict):
-                            exec_span.set_attribute("files_count", len(result['implementation'].get('files', [])))
-
-            # Add research & planning metadata to result
-            if isinstance(result, dict):
-                result['research_used'] = True
-                result['research_summary'] = research.get('research_summary', 'Research completed')
-                result['plan_summary'] = plan.get('plan_summary', 'Plan created')
-
-            return result
-
-        except NotImplementedError:
-            # Agent hasn't implemented research & planning yet - fallback
-            print(f"   ⚠️  Research & planning not implemented, using direct execution")
-            log_event(
-                "agent_research_fallback",
-                agent_id=self.agent_card.agent_id,
-                reason="not_implemented"
-            )
-            return await self.execute_task(task)
-
-        except Exception as e:
-            print(f"   ❌ Research & planning error: {e}, falling back to direct execution")
-            log_error(
-                e,
-                context="agent_research_planning",
-                agent_id=self.agent_card.agent_id,
-                task_id=task.task_id
-            )
-            return await self.execute_task(task)
+            except Exception as e:
+                print(f"   ❌ Research & planning error: {e}, falling back to direct execution")
+                log_error(
+                    e,
+                    context="agent_research_planning",
+                    agent_id=self.agent_card.agent_id,
+                    task_id=task.task_id
+                )
+                return await self.execute_task(task)
 
     async def handle_review_request(self, message: A2AMessage) -> Dict[str, Any]:
         """Handle incoming review request with telemetry tracking"""

@@ -5,8 +5,15 @@ Wraps the Claude Agent SDK for easier agent management with tool use and MCP sup
 """
 
 import os
+import sys
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, create_sdk_mcp_server
-from typing import List, Dict, Optional, AsyncIterator
+from typing import List, Dict, Optional, AsyncIterator, TYPE_CHECKING, Any
+
+# Import token tracker
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+if TYPE_CHECKING:
+    from agents.collaborative.token_tracker import AgentTokenTracker
 
 
 class ClaudeSDK:
@@ -15,7 +22,9 @@ class ClaudeSDK:
     def __init__(
         self,
         system_prompt: Optional[str] = None,
-        available_mcp_servers: Optional[Dict[str, any]] = None
+        available_mcp_servers: Optional[Dict[str, any]] = None,
+        token_tracker: Optional['AgentTokenTracker'] = None,
+        agent_id: Optional[str] = None
     ):
         """
         Initialize Claude Agent SDK
@@ -29,6 +38,8 @@ class ClaudeSDK:
                                       "github": {"command": "npx", "args": [...], "env": {...}},
                                       "netlify": {"command": "npx", "args": [...], "env": {...}}
                                   }
+            token_tracker: Optional token tracker for monitoring context window usage
+            agent_id: Optional agent ID for creating token tracker automatically
         """
         self.api_key = os.getenv("ANTHROPIC_API_KEY")
         if not self.api_key:
@@ -97,6 +108,27 @@ IMPORTANT:
    - Publish directory (check netlify for similar or same name as github repo)
 3. After successful deployment, always provide the live URL to the user
 4. Monitor deployment progress and report the status
+"""
+
+        # If Playwright MCP is available, enhance prompt
+        if available_mcp_servers and "playwright" in available_mcp_servers:
+            base_prompt += """
+
+You have access to Playwright MCP tools for browser automation and web scraping. Available operations include:
+- playwright_navigate: Navigate to a URL in the browser
+- playwright_screenshot: Take a screenshot of the current page or a specific element
+- playwright_click: Click on an element on the page
+- playwright_fill: Fill out form fields with text
+- playwright_evaluate: Execute JavaScript in the browser context
+- playwright_get_text: Extract text content from elements
+
+IMPORTANT:
+1. Always use Playwright MCP tools (mcp__playwright__*) for browser automation
+2. Playwright runs in headless mode on the server (no GUI)
+3. Use screenshots to help debug issues or confirm page state
+4. Be mindful of website terms of service when scraping content
+5. Use appropriate wait times for page loads and dynamic content
+6. Clean up browser contexts after completing tasks
 """
 
         # If PostgreSQL MCP is available, enhance prompt
@@ -184,8 +216,8 @@ IMPORTANT:
    b. describe_project(project_id) → returns branch_id (usually main branch)
    c. get_connection_string(project_id, branch_id) → returns DATABASE_URL
 3. For pooled connections (serverless/Netlify), add '-pooler' after project ID in hostname:
-   - Original: postgresql://user:pass@ep-abc-123.region.aws.neon.tech/neondb
-   - Pooled:   postgresql://user:pass@ep-abc-123-pooler.region.aws.neon.tech/neondb
+   - Original: postgresql://[USER]:[PASS]@ep-[PROJECT-ID].[REGION].aws.neon.tech/[DB]
+   - Pooled:   postgresql://[USER]:[PASS]@ep-[PROJECT-ID]-pooler.[REGION].aws.neon.tech/[DB]
 4. Use branches for safe testing before applying changes to production
 5. Project IDs start with 'ep-', branch IDs start with 'br-'
 """
@@ -199,9 +231,19 @@ IMPORTANT:
         self._is_initialized = False
         self._is_closed = False
 
+        # Token tracking (optional)
+        self.token_tracker = token_tracker
+        if token_tracker is None and agent_id:
+            # Auto-create tracker if agent_id provided
+            from agents.collaborative.token_tracker import AgentTokenTracker
+            self.token_tracker = AgentTokenTracker(agent_id=agent_id)
+            print(f"🎯 Auto-created token tracker for agent: {agent_id}")
+
         print(f"Claude SDK initialized with model: {self.model} (Sonnet 4.5)")
         print(f"Max tokens: {self.max_tokens} (memory optimized)")
         print(f"Available MCP servers: {list(self.available_mcp_servers.keys())}")
+        if self.token_tracker:
+            print(f"Token tracking: Enabled (agent: {self.token_tracker.agent_id})")
 
     async def initialize_client(self):
         """Initialize the async Claude SDK client with available MCP servers"""
@@ -297,6 +339,58 @@ IMPORTANT:
                 traceback.print_exc()
                 raise
 
+    def _extract_usage_from_message(self, message: Any) -> Optional[Any]:
+        """
+        Attempt to extract usage information from a message object.
+
+        The Claude Agent SDK may not expose usage the same way as the direct
+        Anthropic SDK. This method attempts to find usage information if available.
+
+        Args:
+            message: Message object from Claude Agent SDK
+
+        Returns:
+            Usage object if found, None otherwise
+        """
+        # Try to get usage from message
+        usage = getattr(message, 'usage', None)
+        if usage:
+            return usage
+
+        # Try to get from model_extra (Pydantic models sometimes store extra data here)
+        if hasattr(message, 'model_extra'):
+            model_extra = getattr(message, 'model_extra', {})
+            if isinstance(model_extra, dict) and 'usage' in model_extra:
+                return model_extra['usage']
+
+        # Try to get from __dict__ directly
+        if hasattr(message, '__dict__'):
+            msg_dict = message.__dict__
+            if 'usage' in msg_dict:
+                return msg_dict['usage']
+
+        return None
+
+    def _record_usage(self, operation_name: str, usage: Any) -> Optional[str]:
+        """
+        Record token usage if tracker is available.
+
+        Args:
+            operation_name: Name of the operation
+            usage: Usage object
+
+        Returns:
+            Status string ("OK", "WARNING", "CRITICAL") or None if no tracker
+        """
+        if self.token_tracker and usage:
+            try:
+                status = self.token_tracker.record_usage(operation_name, usage)
+                return status
+            except Exception as e:
+                print(f"⚠️  Error recording token usage: {e}")
+                return None
+        return None
+
     async def send_message(
         self,
         user_message: str,
@@ -311,6 +405,9 @@ IMPORTANT:
 
         Returns:
             Claude's response text
+
+        Raises:
+            ContextWindowExhausted: If token limit is reached (when tracking enabled)
         """
         if not self.client:
             await self.initialize_client()
@@ -321,7 +418,12 @@ IMPORTANT:
 
             # Collect response from assistant
             response_text = ""
+            last_message = None
+
             async for message in self.client.receive_response():
+                # Keep track of the last message for usage extraction
+                last_message = message
+
                 # Check if this is an AssistantMessage
                 if type(message).__name__ == 'AssistantMessage':
                     # Extract text from content blocks
@@ -335,6 +437,24 @@ IMPORTANT:
             if not response_text:
                 response_text = "I apologize, but I couldn't generate a response. Please try again."
 
+            # Attempt to extract and record token usage
+            if self.token_tracker and last_message:
+                usage = self._extract_usage_from_message(last_message)
+                if usage:
+                    status = self._record_usage("send_message", usage)
+                    if status == "CRITICAL":
+                        # Raise exception to signal handoff needed
+                        from agents.collaborative.token_tracker import ContextWindowExhausted
+                        raise ContextWindowExhausted(
+                            agent_id=self.token_tracker.agent_id,
+                            total_tokens=self.token_tracker.total_tokens,
+                            usage_percentage=self.token_tracker.usage_percentage
+                        )
+                else:
+                    # Usage not available - this is expected with Claude Agent SDK
+                    # Token tracking will need to be done at a higher level
+                    pass
+
             return response_text.strip()
 
         except Exception as e:
@@ -342,7 +462,7 @@ IMPORTANT:
             print(error_msg)
             import traceback
             traceback.print_exc()
-            raise Exception(error_msg)
+            raise
 
     async def stream_message(
         self,

@@ -184,6 +184,16 @@ if enable_neon:
 else:
     print(f"ℹ️  Neon MCP disabled (ENABLE_NEON_MCP={os.getenv('ENABLE_NEON_MCP', 'not set')})")
 
+# Add Playwright MCP if enabled
+enable_playwright = os.getenv("ENABLE_PLAYWRIGHT_MCP", "false").lower() == "true"
+if enable_playwright:
+    try:
+        from playwright_mcp.server import create_playwright_mcp_config
+        mcp_config["playwright"] = create_playwright_mcp_config()
+        print("✅ Playwright MCP configured")
+    except Exception as e:
+        print(f"⚠️  Playwright MCP not available: {e}")
+
 # Initialize WhatsApp adapter
 whatsapp_adapter = WhatsAppAdapter(whatsapp_client)
 

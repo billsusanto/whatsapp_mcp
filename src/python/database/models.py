@@ -209,3 +209,111 @@ class ProjectMetadata(Base):
         Index('idx_project_status', 'status'),
         Index('idx_project_created', 'created_at'),
     )
+
+
+class AgentHandoff(Base):
+    """
+    Stores agent handoff documents for context window management
+
+    When an agent reaches its context window limit (200K tokens), it creates
+    a handoff document containing all state, decisions, work completed, and TODOs.
+    The orchestrator then spawns a new agent instance that continues from this handoff.
+
+    This enables:
+    - Seamless agent continuity across context window boundaries
+    - Prevention of context rot
+    - Full audit trail of agent lifecycle events
+    - Memory-efficient storage (database vs in-memory)
+    - Organization by user (WhatsApp number, GitHub repo)
+    """
+    __tablename__ = "agent_handoff"
+
+    # Primary key
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # Handoff identification
+    handoff_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    trace_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # Links handoffs in same task chain
+    task_id: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # User and project identification
+    user_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)  # WhatsApp number or GitHub repo#issue
+    project_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)  # "whatsapp", "github"
+    workflow_type: Mapped[str] = mapped_column(String(50), nullable=False)  # "full_build", "bug_fix", "feature_add"
+
+    # Agent information
+    source_agent_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_agent_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # "frontend", "backend", etc.
+    source_agent_role: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_agent_version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    target_agent_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_agent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_agent_role: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_agent_version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    termination_reason: Mapped[str] = mapped_column(String(50), nullable=False)  # "context_window_exhausted", "task_completed", etc.
+
+    # Token usage summary (for quick queries without parsing JSON)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    total_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    usage_percentage: Mapped[float] = mapped_column(Integer, nullable=False)  # 0-100
+
+    # Task progress summary (for quick queries)
+    completion_percentage: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-100
+    current_phase: Mapped[str] = mapped_column(String(100), nullable=False)
+    task_status: Mapped[str] = mapped_column(String(20), nullable=False)  # "in_progress", "completed", "blocked"
+
+    # Complete handoff document (JSON/JSONB for flexible schema)
+    # This contains all 17 categories from HandoffDocument Pydantic model
+    handoff_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+    # Optional markdown file path for human readability
+    markdown_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Metadata
+    schema_version: Mapped[str] = mapped_column(String(20), default="1.0.0", nullable=False)
+
+    # Handoff lifecycle
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # False if superseded or archived
+    successor_handoff_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # Next handoff in chain
+
+    # Timestamps
+    handoff_timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # When handoff occurred
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
+
+    # Indexes for efficient queries
+    __table_args__ = (
+        # Most common query: Get latest handoff for a user
+        Index('idx_handoff_user_created', 'user_id', 'created_at'),
+
+        # Get handoffs by agent type (e.g., all frontend agent handoffs)
+        Index('idx_handoff_agent_type', 'source_agent_type', 'created_at'),
+
+        # Get handoffs for a specific project
+        Index('idx_handoff_project', 'project_id', 'created_at'),
+
+        # Track handoff chains via trace_id
+        Index('idx_handoff_trace', 'trace_id', 'created_at'),
+
+        # Query by task
+        Index('idx_handoff_task', 'task_id', 'created_at'),
+
+        # Find active handoffs
+        Index('idx_handoff_active', 'is_active', 'user_id'),
+
+        # Analytics queries (token usage, completion rate)
+        Index('idx_handoff_tokens', 'total_tokens'),
+        Index('idx_handoff_completion', 'completion_percentage'),
+
+        # Platform-specific queries
+        Index('idx_handoff_platform', 'platform', 'user_id'),
+    )

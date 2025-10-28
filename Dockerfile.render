@@ -12,12 +12,28 @@ FROM python:3.12-slim AS builder
 # ============================================
 WORKDIR /app
 
-# Install system dependencies, Node.js, and Git
+# Install system dependencies, Node.js, Git, and Playwright browser dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
     gnupg \
     git \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
@@ -32,11 +48,18 @@ RUN echo "📦 Installing npm packages..." && \
     npm install -g @modelcontextprotocol/server-github && echo "✅ @modelcontextprotocol/server-github installed" || echo "❌ @modelcontextprotocol/server-github FAILED" && \
     npm install -g @netlify/mcp && echo "✅ @netlify/mcp installed" || echo "❌ @netlify/mcp FAILED" && \
     npm install -g @neondatabase/mcp-server-neon && echo "✅ @neondatabase/mcp-server-neon installed" || echo "❌ @neondatabase/mcp-server-neon FAILED" && \
+    npm install -g @playwright/mcp && echo "✅ @playwright/mcp installed" || echo "❌ @playwright/mcp FAILED" && \
     echo "" && echo "📋 Verification - Installed packages:" && \
     (npm list -g --depth=0 2>/dev/null | grep -E "@anthropic-ai/claude-code" && echo "  ✓ claude-code" || echo "  ✗ claude-code MISSING") && \
     (npm list -g --depth=0 2>/dev/null | grep -E "@modelcontextprotocol/server-github" && echo "  ✓ server-github" || echo "  ✗ server-github MISSING") && \
     (npm list -g --depth=0 2>/dev/null | grep -E "@netlify/mcp" && echo "  ✓ netlify/mcp" || echo "  ✗ netlify/mcp MISSING") && \
-    (npm list -g --depth=0 2>/dev/null | grep -E "@neondatabase/mcp-server-neon" && echo "  ✓ neon/mcp" || echo "  ✗ neon/mcp MISSING")
+    (npm list -g --depth=0 2>/dev/null | grep -E "@neondatabase/mcp-server-neon" && echo "  ✓ neon/mcp" || echo "  ✗ neon/mcp MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@playwright/mcp" && echo "  ✓ playwright/mcp" || echo "  ✗ playwright/mcp MISSING")
+
+# Install Playwright Chromium browser (headless mode for server deployment)
+RUN echo "🌐 Installing Playwright Chromium browser..." && \
+    npx playwright@latest install chromium --with-deps && \
+    echo "✅ Chromium browser installed"
 
 # Create non-root user for security
 RUN useradd -m -u 1001 agentuser
@@ -58,12 +81,28 @@ FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
-# Install ONLY runtime dependencies (no build tools)
+# Install ONLY runtime dependencies (no build tools) + Playwright browser dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
     git \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
@@ -78,12 +117,19 @@ RUN echo "📦 Installing npm packages (runtime)..." && \
     npm install -g --production @modelcontextprotocol/server-github && echo "✅ @modelcontextprotocol/server-github installed" || echo "❌ @modelcontextprotocol/server-github FAILED" && \
     npm install -g --production @netlify/mcp && echo "✅ @netlify/mcp installed" || echo "❌ @netlify/mcp FAILED" && \
     npm install -g --production @neondatabase/mcp-server-neon && echo "✅ @neondatabase/mcp-server-neon installed" || echo "❌ @neondatabase/mcp-server-neon FAILED" && \
+    npm install -g --production @playwright/mcp && echo "✅ @playwright/mcp installed" || echo "❌ @playwright/mcp FAILED" && \
     npm cache clean --force && \
     echo "" && echo "📋 Verification - Installed packages:" && \
     (npm list -g --depth=0 2>/dev/null | grep -E "@anthropic-ai/claude-code" && echo "  ✓ claude-code" || echo "  ✗ claude-code MISSING") && \
     (npm list -g --depth=0 2>/dev/null | grep -E "@modelcontextprotocol/server-github" && echo "  ✓ server-github" || echo "  ✗ server-github MISSING") && \
     (npm list -g --depth=0 2>/dev/null | grep -E "@netlify/mcp" && echo "  ✓ netlify/mcp" || echo "  ✗ netlify/mcp MISSING") && \
-    (npm list -g --depth=0 2>/dev/null | grep -E "@neondatabase/mcp-server-neon" && echo "  ✓ neon/mcp" || echo "  ✗ neon/mcp MISSING")
+    (npm list -g --depth=0 2>/dev/null | grep -E "@neondatabase/mcp-server-neon" && echo "  ✓ neon/mcp" || echo "  ✗ neon/mcp MISSING") && \
+    (npm list -g --depth=0 2>/dev/null | grep -E "@playwright/mcp" && echo "  ✓ playwright/mcp" || echo "  ✗ playwright/mcp MISSING")
+
+# Install Playwright Chromium browser (runtime stage)
+RUN echo "🌐 Installing Playwright Chromium browser (runtime)..." && \
+    npx playwright@latest install chromium --with-deps && \
+    echo "✅ Chromium browser installed"
 
 # Copy Python wheels from builder and install
 COPY --from=builder /wheels /wheels

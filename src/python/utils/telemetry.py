@@ -451,6 +451,489 @@ class measure_performance:
 
 
 # ==========================================
+# AGENT-SPECIFIC INSTRUMENTATION
+# ==========================================
+
+class trace_user_request:
+    """
+    Context manager for top-level user request tracing
+
+    Usage:
+        with trace_user_request(user_id, platform, request_type, user_prompt):
+            # All workflow operations
+            ...
+    """
+    def __init__(
+        self,
+        user_id: str,
+        platform: str,
+        request_type: str,
+        user_prompt: str
+    ):
+        import hashlib
+        self.user_hash = hashlib.sha256(user_id.encode()).hexdigest()[:16]
+        self.platform = platform
+        self.request_type = request_type
+        self.request_preview = user_prompt[:100] if user_prompt else ""
+        self.request_length = len(user_prompt) if user_prompt else 0
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                'user_request',
+                user_id=self.user_hash,
+                platform=self.platform,
+                request_type=self.request_type,
+                request_length=self.request_length,
+                request_preview=self.request_preview
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("request_status", "failed")
+                self.span.set_attribute("error_type", exc_type.__name__)
+            else:
+                self.span.set_attribute("request_status", "success")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_agent_lifecycle:
+    """
+    Context manager for agent lifecycle tracking
+
+    Usage:
+        with trace_agent_lifecycle(agent_id, agent_type, agent_version, user_id, project_id):
+            # All agent operations from spawn to cleanup
+            ...
+    """
+    def __init__(
+        self,
+        agent_id: str,
+        agent_type: str,
+        agent_version: int,
+        user_id: str,
+        project_id: str,
+        lifecycle_state: str = "ACTIVE"
+    ):
+        self.agent_id = agent_id
+        self.agent_type = agent_type
+        self.agent_version = agent_version
+        self.user_id = user_id
+        self.project_id = project_id
+        self.lifecycle_state = lifecycle_state
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                f'agent_lifecycle:{self.agent_type}',
+                agent_id=self.agent_id,
+                agent_type=self.agent_type,
+                agent_version=self.agent_version,
+                lifecycle_state=self.lifecycle_state,
+                user_id=self.user_id,
+                project_id=self.project_id
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("lifecycle_status", "failed")
+            else:
+                self.span.set_attribute("lifecycle_status", "completed")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_agent_spawn:
+    """
+    Context manager for agent spawn tracking
+
+    Usage:
+        with trace_agent_spawn(agent_id, agent_type, version, handoff_id):
+            # Spawn agent
+            ...
+    """
+    def __init__(
+        self,
+        agent_id: str,
+        agent_type: str,
+        version: int,
+        handoff_id: Optional[str] = None,
+        predecessor_agent_id: Optional[str] = None
+    ):
+        self.agent_id = agent_id
+        self.agent_type = agent_type
+        self.version = version
+        self.continuation_mode = "handoff" if handoff_id else "fresh"
+        self.handoff_id = handoff_id
+        self.predecessor_agent_id = predecessor_agent_id
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            attributes = {
+                'agent_id': self.agent_id,
+                'agent_type': self.agent_type,
+                'version': self.version,
+                'continuation_mode': self.continuation_mode
+            }
+            if self.handoff_id:
+                attributes['handoff_id'] = self.handoff_id
+            if self.predecessor_agent_id:
+                attributes['predecessor_agent_id'] = self.predecessor_agent_id
+
+            self.span = logfire.span('agent_spawn', **attributes)
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("spawn_status", "failed")
+            else:
+                self.span.set_attribute("spawn_status", "success")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_agent_task_execution:
+    """
+    Context manager for agent task execution
+
+    Usage:
+        with trace_agent_task_execution(agent_id, task_type, task_description):
+            # Execute task
+            ...
+    """
+    def __init__(
+        self,
+        agent_id: str,
+        task_type: str,
+        task_description: str,
+        task_id: Optional[str] = None,
+        task_source: str = "orchestrator",
+        priority: str = "medium"
+    ):
+        self.agent_id = agent_id
+        self.task_type = task_type
+        self.task_description = task_description[:200]  # Truncate
+        self.task_id = task_id
+        self.task_source = task_source
+        self.priority = priority
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            attributes = {
+                'agent_id': self.agent_id,
+                'task_description': self.task_description,
+                'task_source': self.task_source,
+                'priority': self.priority
+            }
+            if self.task_id:
+                attributes['task_id'] = self.task_id
+
+            self.span = logfire.span(f'agent_task:{self.task_type}', **attributes)
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("task_status", "failed")
+                self.span.set_attribute("error_type", exc_type.__name__)
+            else:
+                self.span.set_attribute("task_status", "success")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_token_usage:
+    """
+    Context manager for token usage tracking
+
+    Usage:
+        with trace_token_usage(agent_id, operation) as span:
+            # Record token usage
+            span.set_attribute('tokens_used', 1500)
+    """
+    def __init__(
+        self,
+        agent_id: str,
+        operation: str,
+        cumulative_total: int = 0
+    ):
+        self.agent_id = agent_id
+        self.operation = operation
+        self.cumulative_total = cumulative_total
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                'token_usage_recorded',
+                agent_id=self.agent_id,
+                operation=self.operation,
+                cumulative_total=self.cumulative_total
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_agent_handoff:
+    """
+    Context manager for agent handoff tracking
+
+    Usage:
+        with trace_agent_handoff(source_agent_id, target_agent_id, handoff_id):
+            # Create and save handoff
+            ...
+    """
+    def __init__(
+        self,
+        source_agent_id: str,
+        target_agent_id: str,
+        handoff_id: str,
+        trace_id: str,
+        termination_reason: str,
+        completion_percentage: int,
+        tokens_used: int
+    ):
+        self.source_agent_id = source_agent_id
+        self.target_agent_id = target_agent_id
+        self.handoff_id = handoff_id
+        self.trace_id = trace_id
+        self.termination_reason = termination_reason
+        self.completion_percentage = completion_percentage
+        self.tokens_used = tokens_used
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                'agent_handoff',
+                source_agent_id=self.source_agent_id,
+                target_agent_id=self.target_agent_id,
+                handoff_id=self.handoff_id,
+                trace_id=self.trace_id,
+                termination_reason=self.termination_reason,
+                completion_percentage=self.completion_percentage,
+                tokens_used=self.tokens_used
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("handoff_status", "failed")
+            else:
+                self.span.set_attribute("handoff_status", "success")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_handoff_document:
+    """
+    Context manager for handoff document creation
+
+    Usage:
+        with trace_handoff_document(handoff_id) as span:
+            # Create handoff document
+            span.set_attribute('document_size_kb', 5.2)
+    """
+    def __init__(self, handoff_id: str):
+        self.handoff_id = handoff_id
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                'handoff_document_created',
+                handoff_id=self.handoff_id
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_database_operation:
+    """
+    Context manager for database operations
+
+    Usage:
+        with trace_database_operation('agent_handoff', 'insert', record_id):
+            # Database operation
+            ...
+    """
+    def __init__(
+        self,
+        table_name: str,
+        operation: str,
+        record_id: Optional[Any] = None
+    ):
+        self.table_name = table_name
+        self.operation = operation
+        self.record_id = record_id
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            attributes = {
+                'table_name': self.table_name,
+                'operation': self.operation
+            }
+            if self.record_id:
+                attributes['record_id'] = str(self.record_id)
+
+            self.span = logfire.span(
+                f'database_save:{self.table_name}',
+                **attributes
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("db_status", "failed")
+            else:
+                self.span.set_attribute("db_status", "success")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_phase_transition:
+    """
+    Context manager for workflow phase transitions
+
+    Usage:
+        with trace_phase_transition('design', 'implementation', 'design_approved'):
+            # Transition phase
+            ...
+    """
+    def __init__(
+        self,
+        from_phase: str,
+        to_phase: str,
+        reason: str,
+        completion_percentage: int = 0
+    ):
+        self.from_phase = from_phase
+        self.to_phase = to_phase
+        self.reason = reason
+        self.completion_percentage = completion_percentage
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                'phase_transition',
+                from_phase=self.from_phase,
+                to_phase=self.to_phase,
+                reason=self.reason,
+                completion_percentage=self.completion_percentage
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_mcp_tool:
+    """
+    Context manager for MCP tool execution
+
+    Usage:
+        with trace_mcp_tool(agent_id, 'github_create_repo', 'github') as span:
+            # Call MCP tool
+            span.set_attribute('repo_name', 'my-app')
+    """
+    def __init__(
+        self,
+        agent_id: str,
+        tool_name: str,
+        server: str
+    ):
+        self.agent_id = agent_id
+        self.tool_name = tool_name
+        self.server = server
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                f'mcp_tool:{self.tool_name}',
+                agent_id=self.agent_id,
+                tool_name=self.tool_name,
+                server=self.server
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            if exc_type:
+                self.span.set_attribute("tool_status", "failed")
+            else:
+                self.span.set_attribute("tool_status", "success")
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+class trace_threshold_event:
+    """
+    Context manager for token threshold events
+
+    Usage:
+        with trace_threshold_event(agent_id, 'warning', token_usage, usage_percentage):
+            # Send notification
+            ...
+    """
+    def __init__(
+        self,
+        agent_id: str,
+        threshold_type: str,  # 'warning' or 'critical'
+        token_usage: int,
+        usage_percentage: float,
+        tokens_remaining: int
+    ):
+        self.agent_id = agent_id
+        self.threshold_type = threshold_type
+        self.token_usage = token_usage
+        self.usage_percentage = usage_percentage
+        self.tokens_remaining = tokens_remaining
+        self.span = None
+
+    def __enter__(self):
+        if LOGFIRE_AVAILABLE and _initialized:
+            self.span = logfire.span(
+                f'agent_threshold:{self.threshold_type}',
+                agent_id=self.agent_id,
+                threshold_type=self.threshold_type,
+                token_usage=self.token_usage,
+                usage_percentage=round(self.usage_percentage, 2),
+                tokens_remaining=self.tokens_remaining
+            )
+            return self.span.__enter__()
+        return None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.span:
+            self.span.__exit__(exc_type, exc_val, exc_tb)
+
+
+# ==========================================
 # Initialization
 # ==========================================
 

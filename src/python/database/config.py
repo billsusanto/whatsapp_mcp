@@ -25,8 +25,11 @@ def get_database_url() -> str:
 
     Supports:
     - DATABASE_URL: Full PostgreSQL connection string
-    - Neon format: postgresql://user:pass@host/db
+    - Neon format: postgresql://[user]:[pass]@[host]/[db]
     - Automatically converts to async driver (asyncpg)
+
+    SECURITY: Never hardcode database credentials in code.
+    Always load from environment variables (.env file or hosting platform).
 
     Returns:
         Database URL with asyncpg driver
@@ -39,7 +42,8 @@ def get_database_url() -> str:
     if not database_url:
         raise ValueError(
             "DATABASE_URL environment variable not set. "
-            "Please set it to your Neon PostgreSQL connection string."
+            "Please set it in your .env file or environment. "
+            "Example: DATABASE_URL=postgresql://user:pass@host:5432/database"
         )
 
     # Remove asyncpg-incompatible parameters (sslmode, channel_binding)
@@ -178,3 +182,44 @@ async def close_db():
         _engine = None
         _session_maker = None
         print("Database connections closed")
+
+
+# ==========================================
+# HANDOFF MANAGER CONVENIENCE METHODS
+# ==========================================
+
+async def get_handoff_manager(
+    markdown_base_path: str | None = None,
+    enable_markdown: bool = False
+) -> AsyncGenerator['HandoffManager', None]:
+    """
+    Get a HandoffManager instance with database session
+
+    Usage:
+        async with get_handoff_manager() as manager:
+            handoff = await manager.create_handoff(...)
+            await manager.save_handoff(handoff)
+
+    Args:
+        markdown_base_path: Optional base path for markdown files
+        enable_markdown: Whether to generate markdown files (default: False)
+
+    Yields:
+        HandoffManager instance
+    """
+    from agents.collaborative.handoff_manager import HandoffManager
+
+    session_maker = get_session_maker()
+    async with session_maker() as session:
+        manager = HandoffManager(
+            db_session=session,
+            markdown_base_path=markdown_base_path,
+            enable_markdown=enable_markdown
+        )
+        try:
+            yield manager
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

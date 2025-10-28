@@ -50,6 +50,13 @@ services:
       - key: ENABLE_NETLIFY_MCP
         value: true  # Enable Netlify MCP server integration
 
+      # Playwright MCP Integration
+      - key: ENABLE_PLAYWRIGHT_MCP
+        value: true  # Enable Playwright MCP server integration (browser automation)
+
+      - key: PLAYWRIGHT_HEADLESS
+        value: true  # Run browsers in headless mode (required for server deployment)
+
       # Agent System Prompt (for single-agent mode)
       - key: AGENT_SYSTEM_PROMPT
         value: "You are a professional CTO (Chief Technology Officer) assistant. You help users with technical architecture, code review, technology recommendations, team leadership, product development, technical debt management, and DevOps guidance. Respond professionally, concisely, and with practical technical insights."
@@ -89,7 +96,8 @@ services:
 # 2. WhatsApp MCP server (messaging tools)
 # 3. GitHub MCP server (repository management)
 # 4. Netlify MCP server (site deployment and management)
-# 5. Agent spawning and conversation management
+# 5. Playwright MCP server (browser automation and web scraping)
+# 6. Agent spawning and conversation management
 #
 # ARCHITECTURE:
 # - WhatsApp User sends message
@@ -99,6 +107,7 @@ services:
 #   • WhatsApp MCP: Send messages back to users
 #   • GitHub MCP: List/search/manage GitHub repositories
 #   • Netlify MCP: Deploy sites, manage deployments, configure settings
+#   • Playwright MCP: Automate browsers, scrape web content, test web apps
 # - Response sent back via WhatsApp API
 #
 # SETUP STEPS:
@@ -135,6 +144,7 @@ services:
 # MCP CAPABILITIES:
 # - GitHub: Create repos, search code, manage issues/PRs, create files
 # - Netlify: Deploy sites from GitHub, manage deployments, configure env vars
+# - Playwright: Navigate web pages, screenshot, scrape content, test web apps
 # - WhatsApp: Send messages to users
 #
 # ==========================================
