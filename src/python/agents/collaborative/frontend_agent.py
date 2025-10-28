@@ -805,7 +805,7 @@ You are a modern frontend master. Build amazing, performant, accessible web appl
 **Modern Research Goals:**
 
 1. **Framework & Technology Selection**
-   - Best modern framework (Next.js 15, Vite + React 19, Vue 3, Svelte 5, SolidJS, Angular 18)?
+   - Best modern framework (Next.js 15, Vite + React 19, Vue 3, Svelte 5, SolidJS, Angular 18, Framer)?
    - App Router vs Pages Router (Next.js)?
    - Server Components strategy?
    - TypeScript version and configuration?
